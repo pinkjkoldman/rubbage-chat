@@ -14,7 +14,8 @@ public:
 
 	bool initialize(bool seedDemoAccounts, bool publicMode, QString* error);
 	QJsonObject registerUser(const QString& name, const QString& password);
-	QJsonObject login(const QString& account, const QString& password);
+	QJsonObject login(const QString& account, const QString& password,
+		const QString& deviceId = {});
 	QString authenticate(const QString& token);
 	void logout(const QString& token);
 
@@ -27,8 +28,21 @@ public:
 
 	QJsonObject sendMessage(const QString& sender, const QString& receiver,
 		const QString& body, const QString& clientMessageId,
-		const QString& type = "text", const QString& attachmentId = {});
+		const QString& type = "text", const QString& attachmentId = {},
+		const QString& senderDeviceId = {}, const QString& replyToId = {});
 	QJsonArray history(const QString& owner, const QString& peer, int limit = 200);
+	QJsonObject syncMessages(const QString& owner, const QString& peer,
+		qint64 afterSeq, int limit = 200);
+	QJsonObject acknowledgeMessage(const QString& account, const QString& peer,
+		qint64 seq, const QString& kind);
+	QJsonObject editMessage(const QString& account, const QString& messageId,
+		const QString& body);
+	QJsonObject recallMessage(const QString& account, const QString& messageId);
+	QJsonObject reactToMessage(const QString& account, const QString& messageId,
+		const QString& emoji);
+	QJsonArray devices(const QString& account);
+	void revokeDevice(const QString& account, const QString& deviceId,
+		const QString& currentToken);
 	QJsonObject storeAttachment(const QString& owner, const QString& receiver,
 		const QString& fileName, const QString& mimeType, const QByteArray& bytes);
 	QJsonObject loadAttachment(const QString& requester, const QString& attachmentId);

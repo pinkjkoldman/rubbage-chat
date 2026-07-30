@@ -41,38 +41,23 @@ ChatController::ChatController(QObject* parent)
 {
 	QSettings runtimeConfig(QCoreApplication::applicationDirPath() + "/rubbagechat.ini",
 		QSettings::IniFormat);
-	m_networkLocked = qEnvironmentVariable("RUBBAGECHAT_NETWORK_LOCKED",
-		runtimeConfig.value("network/locked", false).toString())
-		.trimmed().toLower() == "true";
+	m_bootstrapUrl = QUrl(qEnvironmentVariable("RUBBAGECHAT_BOOTSTRAP_URL",
+		runtimeConfig.value("network/bootstrapUrl").toString()).trimmed());
+	m_networkLocked = true;
 	m_serverHost = qEnvironmentVariable("RUBBAGECHAT_SERVER_HOST",
-		(m_networkLocked
-			? runtimeConfig.value("network/host", "127.0.0.1")
-			: m_settings.value("network/host",
-				runtimeConfig.value("network/host", "127.0.0.1")))
-			.toString()).trimmed();
+		runtimeConfig.value("network/host", "127.0.0.1").toString()).trimmed();
 	bool chatPortOk = false;
 	bool filePortOk = false;
 	const int chatPort = qEnvironmentVariable("RUBBAGECHAT_CHAT_PORT",
-		(m_networkLocked
-			? runtimeConfig.value("network/chatPort", 7502)
-			: m_settings.value("network/chatPort",
-				runtimeConfig.value("network/chatPort", 7502)))
-			.toString()).toInt(&chatPortOk);
+		runtimeConfig.value("network/chatPort", 7502).toString()).toInt(&chatPortOk);
 	const int filePort = qEnvironmentVariable("RUBBAGECHAT_FILE_PORT",
-		(m_networkLocked
-			? runtimeConfig.value("network/filePort", 7028)
-			: m_settings.value("network/filePort",
-				runtimeConfig.value("network/filePort", 7028)))
-			.toString()).toInt(&filePortOk);
+		runtimeConfig.value("network/filePort", 7028).toString()).toInt(&filePortOk);
 	m_chatPort = chatPortOk && chatPort > 0 && chatPort <= 65535 ? chatPort : 7502;
 	m_filePort = filePortOk && filePort > 0 && filePort <= 65535 ? filePort : 7028;
 	if (m_serverHost.isEmpty())
 		m_serverHost = "127.0.0.1";
 	m_tlsEnabled = qEnvironmentVariable("RUBBAGECHAT_TLS",
-		(m_networkLocked
-			? runtimeConfig.value("security/tls", false)
-			: m_settings.value("network/tls",
-				runtimeConfig.value("security/tls", false))).toString())
+		runtimeConfig.value("security/tls", false).toString())
 		.trimmed().toLower() == "true";
 
 	m_theme = normalizedTheme(m_settings.value("appearance/theme", "system").toString());
@@ -80,6 +65,11 @@ ChatController::ChatController(QObject* parent)
 	m_enterToSend = m_settings.value("chat/enterToSend", true).toBool();
 	m_showOnlineStatus = m_settings.value("privacy/showOnlineStatus", true).toBool();
 	m_compactMode = m_settings.value("appearance/compactMode", false).toBool();
+	m_deviceId = m_settings.value("identity/deviceId").toString();
+	if (m_deviceId.isEmpty()) {
+		m_deviceId = QUuid::createUuid().toString(QUuid::WithoutBraces);
+		saveSetting("identity/deviceId", m_deviceId);
+	}
 
 	m_reconnectTimer.setSingleShot(true);
 	connect(&m_reconnectTimer, &QTimer::timeout,
@@ -88,17 +78,13 @@ ChatController::ChatController(QObject* parent)
 		if (m_tlsEnabled)
 			return;
 		setConnected(true);
-		const QList<QJsonObject> queued = std::exchange(m_outbox, {});
-		for (const QJsonObject& packet : queued)
-			m_socket.write(ChatProtocol::encode(packet));
+		flushOutbox();
 		if (m_authenticated && !m_token.isEmpty())
 			refreshAll();
 	});
 	connect(&m_socket, &QSslSocket::encrypted, this, [this]() {
 		setConnected(true);
-		const QList<QJsonObject> queued = std::exchange(m_outbox, {});
-		for (const QJsonObject& packet : queued)
-			m_socket.write(ChatProtocol::encode(packet));
+		flushOutbox();
 		if (m_authenticated && !m_token.isEmpty())
 			refreshAll();
 	});
@@ -133,7 +119,22 @@ ChatController::ChatController(QObject* parent)
 	m_pingTimer.start();
 	connect(QGuiApplication::styleHints(), &QStyleHints::colorSchemeChanged,
 		this, &ChatController::settingsChanged);
-	connectToServer();
+	connect(&m_endpointDiscovery, &EndpointDiscovery::statusChanged,
+		this, [this](const QString& status) {
+			m_endpointStatus = status;
+			emit networkSettingsChanged();
+		});
+	connect(&m_endpointDiscovery, &EndpointDiscovery::resolved,
+		this, [this](const QString& host, int port, bool tls) {
+			m_serverHost = host;
+			m_chatPort = port;
+			m_tlsEnabled = tls;
+			m_tlsBlocked = false;
+			emit networkSettingsChanged();
+			connectToServer();
+		});
+	m_endpointDiscovery.resolve(m_bootstrapUrl,
+		{m_serverHost, quint16(m_chatPort), m_tlsEnabled});
 }
 
 ChatController::~ChatController()
@@ -189,16 +190,39 @@ QString ChatController::sendRequest(const QString& action,
 		return {};
 	}
 	QJsonObject packet = ChatProtocol::request(
-		action, data, authenticated ? m_token : QString());
+		action, data, authenticated ? m_token : QString(), {}, m_deviceId);
 	const QString requestId = packet.value("requestId").toString();
 	m_pendingActions.insert(requestId, action);
+	if (authenticated && action == "send_message")
+		m_reliableOutbox.enqueue(m_currentUserAccount, packet);
 	if (m_socket.state() == QAbstractSocket::ConnectedState)
 		m_socket.write(ChatProtocol::encode(packet));
 	else {
-		m_outbox.append(packet);
+		if (action != "send_message")
+			m_outbox.append(packet);
 		connectToServer();
 	}
 	return requestId;
+}
+
+void ChatController::flushOutbox()
+{
+	const QList<QJsonObject> queued = std::exchange(m_outbox, {});
+	for (QJsonObject packet : queued) {
+		if (!packet.value("token").toString().isEmpty() && !m_token.isEmpty())
+			packet.insert("token", m_token);
+		packet.insert("deviceId", m_deviceId);
+		m_socket.write(ChatProtocol::encode(packet));
+	}
+	if (!m_authenticated || m_token.isEmpty())
+		return;
+	for (QJsonObject packet : m_reliableOutbox.pending(m_currentUserAccount)) {
+		packet.insert("token", m_token);
+		packet.insert("deviceId", m_deviceId);
+		const QString requestId = packet.value("requestId").toString();
+		m_pendingActions.insert(requestId, packet.value("action").toString());
+		m_socket.write(ChatProtocol::encode(packet));
+	}
 }
 
 void ChatController::login(const QString& account, const QString& password)
@@ -299,12 +323,65 @@ bool ChatController::sendMessage(const QString& text)
 		showToast(QStringLiteral("消息长度需要在 1-4000 个字符之间"), true);
 		return false;
 	}
-	sendRequest("send_message", {
+	const QString clientMessageId =
+		QUuid::createUuid().toString(QUuid::WithoutBraces);
+	QJsonObject data{
 		{"account", m_selectedPeerAccount},
 		{"body", body},
-		{"clientMessageId", QUuid::createUuid().toString(QUuid::WithoutBraces)}
+		{"clientMessageId", clientMessageId}
+	};
+	if (!m_replyToId.isEmpty())
+		data.insert("replyToId", m_replyToId);
+	m_messages.append(QVariantMap{
+		{"id", QString()},
+		{"clientMessageId", clientMessageId},
+		{"body", body},
+		{"mine", true},
+		{"type", "text"},
+		{"status", m_connected ? "sending" : "queued"},
+		{"replyToId", m_replyToId},
+		{"replyPreview", m_replyPreview},
+		{"time", QDateTime::currentDateTime().toString("HH:mm")}
 	});
+	emit messagesChanged();
+	clearReply();
+	sendRequest("send_message", data);
 	return true;
+}
+
+void ChatController::replyToMessage(
+	const QString& messageId, const QString& preview)
+{
+	m_replyToId = messageId;
+	m_replyPreview = preview.left(120);
+	showToast(QStringLiteral("已引用该消息，发送下一条消息即可回复"));
+}
+
+void ChatController::clearReply()
+{
+	m_replyToId.clear();
+	m_replyPreview.clear();
+}
+
+void ChatController::editMessage(const QString& messageId, const QString& body)
+{
+	if (messageId.isEmpty())
+		return;
+	sendRequest("edit_message", {{"messageId", messageId}, {"body", body}});
+}
+
+void ChatController::recallMessage(const QString& messageId)
+{
+	if (!messageId.isEmpty())
+		sendRequest("recall_message", {{"messageId", messageId}});
+}
+
+void ChatController::reactToMessage(
+	const QString& messageId, const QString& emoji)
+{
+	if (!messageId.isEmpty() && !emoji.trimmed().isEmpty())
+		sendRequest("react_message",
+			{{"messageId", messageId}, {"emoji", emoji.trimmed()}});
 }
 
 void ChatController::sendFile(const QUrl& fileUrl)
@@ -472,6 +549,7 @@ void ChatController::processPacket(const QJsonObject& packet)
 		return;
 	const QString requestId = packet.value("requestId").toString();
 	const QString action = m_pendingActions.take(requestId);
+	m_reliableOutbox.acknowledge(requestId);
 	if (!packet.value("ok").toBool()) {
 		if (action == "send_file" || action == "download_attachment") {
 			m_fileTransferActive = false;
@@ -505,6 +583,7 @@ void ChatController::processResponse(const QString& action, const QJsonObject& d
 		applySnapshot(data.value("snapshot").toObject());
 		emit currentUserChanged();
 		emit authenticatedChanged();
+		flushOutbox();
 		showToast(QStringLiteral("欢迎回来，%1").arg(m_currentUserName));
 	}
 	else if (action == "snapshot") {
@@ -516,20 +595,21 @@ void ChatController::processResponse(const QString& action, const QJsonObject& d
 		if (m_searchResult.isEmpty())
 			showToast(QStringLiteral("未找到该用户"), true);
 	}
-	else if (action == "history") {
+	else if (action == "history" || action == "sync_messages") {
 		applyHistory(data.value("messages").toArray());
+		const qint64 cursor = qint64(data.value("nextCursor").toDouble());
+		if (cursor > 0 && !m_selectedPeerAccount.isEmpty())
+			sendRequest("ack_message", {
+				{"account", m_selectedPeerAccount},
+				{"seq", double(cursor)},
+				{"kind", "read"}
+			});
 		refreshAll();
 	}
 	else if (action == "send_message") {
 		const QJsonObject message = data.value("message").toObject();
 		if (message.value("receiver").toString() == m_selectedPeerAccount)
-			m_messages.append(QVariantMap{
-				{"body", message.value("body").toString()},
-				{"mine", true},
-				{"time", QDateTime::fromMSecsSinceEpoch(
-					qint64(message.value("createdAt").toDouble())).toString("HH:mm")}
-			});
-		emit messagesChanged();
+			mergeMessage(message);
 		refreshAll();
 	}
 	else if (action == "send_file") {
@@ -538,14 +618,7 @@ void ChatController::processResponse(const QString& action, const QJsonObject& d
 		m_fileTransferLabel = QStringLiteral("文件已发送并保存到服务器");
 		emit fileTransferChanged();
 		const QJsonObject message = data.value("message").toObject();
-		m_messages.append(QVariantMap{
-			{"body", message.value("body").toString()},
-			{"mine", true},
-			{"type", "file"},
-			{"attachmentId", message.value("attachmentId").toString()},
-			{"time", QDateTime::currentDateTime().toString("HH:mm")}
-		});
-		emit messagesChanged();
+		mergeMessage(message);
 		refreshAll();
 		QTimer::singleShot(1500, this, [this]() {
 			m_fileTransferProgress = 0;
@@ -617,6 +690,11 @@ void ChatController::processResponse(const QString& action, const QJsonObject& d
 		showToast(QStringLiteral("操作成功"));
 		refreshAll();
 	}
+	else if (action == "edit_message"
+		|| action == "recall_message"
+		|| action == "react_message") {
+		mergeMessage(data.value("message").toObject());
+	}
 	else if (action == "change_password") {
 		resetIdentity();
 		showToast(QStringLiteral("密码已修改，请重新登录"));
@@ -634,19 +712,41 @@ void ChatController::processEvent(const QString& event, const QJsonObject& data)
 	else if (event == "message") {
 		const QString sender = data.value("sender").toString();
 		if (sender == m_selectedPeerAccount) {
-			m_messages.append(QVariantMap{
-				{"body", data.value("body").toString()},
-				{"mine", false},
-				{"type", data.value("type").toString()},
-				{"attachmentId", data.value("attachmentId").toString()},
-				{"time", QDateTime::fromMSecsSinceEpoch(
-					qint64(data.value("createdAt").toDouble())).toString("HH:mm")}
-			});
-			emit messagesChanged();
+			mergeMessage(data);
+			const qint64 seq = qint64(data.value("seq").toDouble());
+			if (seq > 0)
+				sendRequest("ack_message", {
+					{"account", sender}, {"seq", double(seq)}, {"kind", "read"}});
 		}
 		if (m_notificationsEnabled && sender != m_selectedPeerAccount)
 			showToast(QStringLiteral("收到一条新消息"));
 		refreshAll();
+	}
+	else if (event == "message_committed" || event == "message_updated") {
+		const QString sender = data.value("sender").toString();
+		const QString receiver = data.value("receiver").toString();
+		if (sender == m_selectedPeerAccount || receiver == m_selectedPeerAccount)
+			mergeMessage(data);
+	}
+	else if (event == "message_receipt") {
+		const qint64 seq = qint64(data.value("seq").toDouble());
+		const QString status = data.value("kind").toString();
+		bool changed = false;
+		for (qsizetype i = 0; i < m_messages.size(); ++i) {
+			QVariantMap message = m_messages.at(i).toMap();
+			if (message.value("mine").toBool()
+				&& message.value("seq").toLongLong() <= seq) {
+				message.insert("status", status);
+				m_messages[i] = message;
+				changed = true;
+			}
+		}
+		if (changed)
+			emit messagesChanged();
+	}
+	else if (event == "session_revoked") {
+		resetIdentity();
+		showToast(QStringLiteral("当前设备会话已被撤销"), true);
 	}
 	else if (event == "heartbeat") {
 		sendRequest("ping", {}, false);
@@ -690,17 +790,51 @@ void ChatController::applySnapshot(const QJsonObject& snapshot)
 void ChatController::applyHistory(const QJsonArray& messages)
 {
 	m_messages.clear();
-	for (const QJsonValue& value : messages) {
-		const QJsonObject message = value.toObject();
-		m_messages.append(QVariantMap{
-			{"body", message.value("body").toString()},
-			{"mine", message.value("sender").toString() == m_currentUserAccount},
-			{"type", message.value("type").toString()},
-			{"attachmentId", message.value("attachmentId").toString()},
-			{"time", QDateTime::fromMSecsSinceEpoch(
-				qint64(message.value("createdAt").toDouble())).toString("HH:mm")}
-		});
+	for (const QJsonValue& value : messages)
+		m_messages.append(messageMap(value.toObject()));
+	emit messagesChanged();
+}
+
+QVariantMap ChatController::messageMap(const QJsonObject& message) const
+{
+	const bool recalled = message.value("recalledAt").toDouble() > 0
+		|| message.value("status").toString() == "recalled";
+	return {
+		{"id", message.value("id").toString()},
+		{"clientMessageId", message.value("clientMessageId").toString()},
+		{"seq", qint64(message.value("seq").toDouble())},
+		{"body", recalled ? QStringLiteral("该消息已撤回")
+			: message.value("body").toString()},
+		{"mine", message.value("sender").toString() == m_currentUserAccount},
+		{"type", message.value("type").toString("text")},
+		{"attachmentId", message.value("attachmentId").toString()},
+		{"status", message.value("status").toString("accepted")},
+		{"edited", message.value("editedAt").toDouble() > 0},
+		{"recalled", recalled},
+		{"replyToId", message.value("replyToId").toString()},
+		{"replyPreview", message.value("replyPreview").toString()},
+		{"reactions", message.value("reactions").toArray().toVariantList()},
+		{"time", QDateTime::fromMSecsSinceEpoch(
+			qint64(message.value("createdAt").toDouble())).toString("HH:mm")}
+	};
+}
+
+void ChatController::mergeMessage(const QJsonObject& message)
+{
+	const QVariantMap mapped = messageMap(message);
+	const QString id = mapped.value("id").toString();
+	const QString clientId = mapped.value("clientMessageId").toString();
+	for (qsizetype i = 0; i < m_messages.size(); ++i) {
+		const QVariantMap current = m_messages.at(i).toMap();
+		if ((!id.isEmpty() && current.value("id").toString() == id)
+			|| (!clientId.isEmpty()
+				&& current.value("clientMessageId").toString() == clientId)) {
+			m_messages[i] = mapped;
+			emit messagesChanged();
+			return;
+		}
 	}
+	m_messages.append(mapped);
 	emit messagesChanged();
 }
 
@@ -813,33 +947,4 @@ void ChatController::setCompactMode(bool value)
 	m_compactMode = value;
 	saveSetting("appearance/compactMode", value);
 	emit settingsChanged();
-}
-
-void ChatController::applyNetworkSettings(
-	const QString& host, int chatPort, int filePort)
-{
-	if (m_networkLocked) {
-		showToast(QStringLiteral("此版本由管理员锁定服务器配置"), true);
-		return;
-	}
-	const QString cleanHost = host.trimmed();
-	if (cleanHost.isEmpty() || chatPort <= 0 || chatPort > 65535
-		|| filePort <= 0 || filePort > 65535) {
-		showToast(QStringLiteral("服务器地址或端口无效"), true);
-		return;
-	}
-	m_serverHost = cleanHost;
-	m_chatPort = chatPort;
-	m_filePort = filePort;
-	saveSetting("network/host", m_serverHost);
-	saveSetting("network/chatPort", m_chatPort);
-	saveSetting("network/filePort", m_filePort);
-	emit networkSettingsChanged();
-	m_tlsBlocked = false;
-	m_reconnectAttempts = 0;
-	m_reconnectTimer.stop();
-	m_socket.abort();
-	setConnected(false);
-	connectToServer();
-	showToast(QStringLiteral("网络设置已保存，正在连接"));
 }

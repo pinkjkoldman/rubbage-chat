@@ -2,6 +2,7 @@ param(
     [string]$ServerHost = '127.0.0.1',
     [ValidateRange(1, 65535)]
     [int]$ServerPort = 7502,
+    [string]$BootstrapUrl = '',
     [switch]$Tls,
     [switch]$LockNetwork
 )
@@ -10,6 +11,12 @@ $ErrorActionPreference = 'Stop'
 
 if ([Uri]::CheckHostName($ServerHost) -eq [UriHostNameType]::Unknown) {
     throw 'ServerHost must be a valid DNS name or IP address.'
+}
+if ($BootstrapUrl) {
+    $bootstrapUri = [Uri]$BootstrapUrl
+    if (-not $bootstrapUri.IsAbsoluteUri -or $bootstrapUri.Scheme -ne 'https') {
+        throw 'BootstrapUrl must be an absolute HTTPS URL.'
+    }
 }
 
 $projectRoot = $PSScriptRoot
@@ -63,7 +70,8 @@ $excludedNames = @(
     'user_1.sqlite-shm',
     'user_1.sqlite-wal',
     'rubbagechat.sqlite-shm',
-    'rubbagechat.sqlite-wal'
+    'rubbagechat.sqlite-wal',
+    'data'
 )
 Get-ChildItem -LiteralPath $deployRoot -Force |
     Where-Object { $excludedNames -notcontains $_.Name } |
@@ -73,9 +81,10 @@ Copy-Item -LiteralPath (Join-Path $projectRoot 'Uninstall-RubbageChat.ps1') `
     -Destination $payloadRoot -Force
 
 $tlsValue = if ($Tls) { 'true' } else { 'false' }
-$lockedValue = if ($LockNetwork) { 'true' } else { 'false' }
+$lockedValue = if ($LockNetwork -or $BootstrapUrl) { 'true' } else { 'false' }
 $clientConfiguration = @"
 [network]
+bootstrapUrl=$BootstrapUrl
 host=$ServerHost
 chatPort=$ServerPort
 filePort=7028

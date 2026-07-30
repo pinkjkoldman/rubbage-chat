@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "expiresAt": "REPLACE_WITH_ISO_8601_WITHIN_7_DAYS",
+  "endpoints": [
+    {
+      "transport": "tls-tcp",
+      "host": "chat.example.com",
+      "port": 443,
+      "priority": 10
+    }
+  ]
+}

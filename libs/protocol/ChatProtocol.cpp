@@ -1,6 +1,7 @@
 #include "ChatProtocol.h"
 
 #include <QDataStream>
+#include <QDateTime>
 #include <QIODevice>
 #include <QJsonDocument>
 #include <QUuid>
@@ -48,7 +49,8 @@ bool ChatProtocol::takeFrames(
 }
 
 QJsonObject ChatProtocol::request(const QString& action,
-	const QJsonObject& data, const QString& token, const QString& requestId)
+	const QJsonObject& data, const QString& token, const QString& requestId,
+	const QString& deviceId)
 {
 	QJsonObject packet{
 		{"version", Version},
@@ -56,9 +58,12 @@ QJsonObject ChatProtocol::request(const QString& action,
 		{"action", action},
 		{"requestId", requestId.isEmpty()
 			? QUuid::createUuid().toString(QUuid::WithoutBraces) : requestId},
-		{"data", data}
+		{"data", data},
+		{"clientTime", double(QDateTime::currentMSecsSinceEpoch())}
 	};
 	if (!token.isEmpty())
 		packet.insert("token", token);
+	if (!deviceId.isEmpty())
+		packet.insert("deviceId", deviceId);
 	return packet;
 }

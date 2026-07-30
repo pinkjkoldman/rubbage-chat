@@ -14,5 +14,12 @@ registrationEnabled=true
 maxConnections=500
 maxConnectionsPerIp=12
 
+[performance]
+businessWorkers=8
+maxPendingCommands=2000
+
+[storage]
+attachmentRoot=C:/ProgramData/RubbageChat/attachments
+
 [development]
 seedDemoAccounts=false

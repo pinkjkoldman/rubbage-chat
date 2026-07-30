@@ -1,6 +1,7 @@
 [network]
+bootstrapUrl=https://config.example.com/v1/bootstrap
 host=chat.example.com
-chatPort=7502
+chatPort=443
 filePort=7028
 locked=true
 

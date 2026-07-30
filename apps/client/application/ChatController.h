@@ -10,6 +10,9 @@
 #include <QUrl>
 #include <QVariantList>
 
+#include "../network/EndpointDiscovery.h"
+#include "../storage/ReliableOutbox.h"
+
 class ChatController final : public QObject
 {
 	Q_OBJECT
@@ -44,6 +47,7 @@ class ChatController final : public QObject
 	Q_PROPERTY(int filePort READ filePort NOTIFY networkSettingsChanged)
 	Q_PROPERTY(bool tlsEnabled READ tlsEnabled NOTIFY networkSettingsChanged)
 	Q_PROPERTY(bool networkLocked READ networkLocked NOTIFY networkSettingsChanged)
+	Q_PROPERTY(QString endpointStatus READ endpointStatus NOTIFY networkSettingsChanged)
 
 public:
 	explicit ChatController(QObject* parent = nullptr);
@@ -80,6 +84,7 @@ public:
 	int filePort() const { return m_filePort; }
 	bool tlsEnabled() const { return m_tlsEnabled; }
 	bool networkLocked() const { return m_networkLocked; }
+	QString endpointStatus() const { return m_endpointStatus; }
 
 	Q_INVOKABLE void login(const QString& account, const QString& password);
 	Q_INVOKABLE void registerAccount(const QString& name, const QString& password, const QString& confirmation);
@@ -87,6 +92,12 @@ public:
 	Q_INVOKABLE void refreshAll();
 	Q_INVOKABLE void selectPeer(const QString& account);
 	Q_INVOKABLE bool sendMessage(const QString& text);
+	Q_INVOKABLE void replyToMessage(const QString& messageId,
+		const QString& preview);
+	Q_INVOKABLE void clearReply();
+	Q_INVOKABLE void editMessage(const QString& messageId, const QString& body);
+	Q_INVOKABLE void recallMessage(const QString& messageId);
+	Q_INVOKABLE void reactToMessage(const QString& messageId, const QString& emoji);
 	Q_INVOKABLE void sendFile(const QUrl& fileUrl);
 	Q_INVOKABLE void downloadAttachment(const QString& attachmentId);
 	Q_INVOKABLE void copyText(const QString& text);
@@ -103,7 +114,6 @@ public:
 		const QString& newPassword, const QString& confirmation);
 	Q_INVOKABLE QVariantMap conversationOptions(const QString& account) const;
 	Q_INVOKABLE void clearToast();
-	Q_INVOKABLE void applyNetworkSettings(const QString& host, int chatPort, int filePort);
 
 	void setTheme(const QString& value);
 	void setNotificationsEnabled(bool value);
@@ -131,6 +141,7 @@ private:
 	void connectToServer();
 	void scheduleReconnect();
 	void setConnected(bool value);
+	void flushOutbox();
 	QString sendRequest(const QString& action, const QJsonObject& data = {},
 		bool authenticated = true);
 	void processIncomingData();
@@ -140,19 +151,26 @@ private:
 	void applySnapshot(const QJsonObject& snapshot);
 	void applyPresence(const QString& account, bool online);
 	void applyHistory(const QJsonArray& messages);
+	QVariantMap messageMap(const QJsonObject& message) const;
+	void mergeMessage(const QJsonObject& message);
 	void resetIdentity();
 	void showToast(const QString& message, bool error = false);
 	void saveSetting(const QString& key, const QVariant& value);
 	QVariantMap peerMap(const QString& account) const;
 
 	QSslSocket m_socket;
+	EndpointDiscovery m_endpointDiscovery;
 	QByteArray m_incomingBuffer;
 	QTimer m_reconnectTimer;
 	QTimer m_pingTimer;
 	QSettings m_settings;
+	ReliableOutbox m_reliableOutbox;
 	QHash<QString, QString> m_pendingActions;
 	QList<QJsonObject> m_outbox;
 	QString m_token;
+	QString m_deviceId;
+	QString m_replyToId;
+	QString m_replyPreview;
 	bool m_authenticated = false;
 	bool m_connected = false;
 	int m_reconnectAttempts = 0;
@@ -180,8 +198,10 @@ private:
 	qreal m_fileTransferProgress = 0.0;
 	QString m_fileTransferLabel;
 	QString m_serverHost = "127.0.0.1";
+	QString m_endpointStatus;
+	QUrl m_bootstrapUrl;
 	bool m_tlsEnabled = false;
-	bool m_networkLocked = false;
+	bool m_networkLocked = true;
 	int m_chatPort = 7502;
 	int m_filePort = 7028;
 };

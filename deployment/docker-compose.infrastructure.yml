@@ -1,0 +1,48 @@
+services:
+  mongo:
+    image: mongo:8.0
+    command: ["mongod", "--replSet", "rs0", "--bind_ip_all"]
+    restart: unless-stopped
+    volumes:
+      - mongo-data:/data/db
+    networks: [backend]
+
+  redis:
+    image: redis:8-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    restart: unless-stopped
+    volumes:
+      - redis-data:/data
+    networks: [backend]
+    profiles: ["scale"]
+
+  nats:
+    image: nats:2.11-alpine
+    command: ["--jetstream", "--store_dir=/data"]
+    restart: unless-stopped
+    volumes:
+      - nats-data:/data
+    networks: [backend]
+    profiles: ["scale"]
+
+  minio:
+    image: minio/minio:latest
+    command: ["server", "/data", "--console-address", ":9001"]
+    restart: unless-stopped
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?set MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD}
+    volumes:
+      - minio-data:/data
+    networks: [backend]
+    profiles: ["scale"]
+
+networks:
+  backend:
+    internal: true
+
+volumes:
+  mongo-data:
+  redis-data:
+  nats-data:
+  minio-data:

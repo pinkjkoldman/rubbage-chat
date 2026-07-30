@@ -1,5 +1,13 @@
 # RubbageChat
 
+当前版本：`2.5.0-beta.1`。客户端支持 HTTPS Bootstrap 免 IP 配置、本地可靠发件箱、
+幂等断线重发、消息序列/游标同步、已送达与已读回执、回复、编辑、撤回、表情回应和
+多设备会话。服务端使用有界业务线程池隔离网络事件循环与 MongoDB/密码哈希工作，
+附件正文保存在独立对象目录，MongoDB 仅保存授权元数据。
+
+完整服务器拓扑、环境变量、反向代理和发布步骤见
+[DEPLOYMENT_BLUEPRINT.md](DEPLOYMENT_BLUEPRINT.md)。
+
 RubbageChat 是一个基于 Qt 6、QML、Qt Network 与 MongoDB 的桌面即时通信产品，包含可安装的 Windows 客户端、可视化服务端控制台、无界面服务器模式和公网测试发布脚本。
 
 ## 产品能力
@@ -73,7 +81,7 @@ third_party/           MongoDB C/C++ 静态驱动
 .\Build-Installer.ps1
 ```
 
-生成连接公网测试服务器、启用 TLS 并锁定网络设置的安装包：
+生成连接公网测试服务器、启用 TLS 并内置 Bootstrap 的安装包：
 
 ```powershell
 .\Build-Installer.ps1 -ServerHost chat.example.com -Tls -LockNetwork

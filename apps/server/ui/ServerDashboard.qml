@@ -182,7 +182,7 @@ ApplicationWindow {
                 font.weight: Font.DemiBold
             }
             Text {
-                text: "2.4.0-beta.1"
+                text: "2.5.0-beta.1"
                 color: "#B5BED1"
                 font.pixelSize: 12
                 font.weight: Font.Normal

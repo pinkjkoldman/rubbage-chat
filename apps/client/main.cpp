@@ -16,7 +16,7 @@ int main(int argc, char* argv[])
 	QGuiApplication application(argc, argv);
 	QCoreApplication::setOrganizationName("RubbageChat");
 	QCoreApplication::setApplicationName("RubbageChat");
-	QCoreApplication::setApplicationVersion("2.4.0-beta.1");
+	QCoreApplication::setApplicationVersion("2.5.0-beta.1");
 
 	QQuickStyle::setStyle("Basic");
 	QFont interfaceFont = application.font();
@@ -77,9 +77,8 @@ int main(int argc, char* argv[])
 						"section", targetSection);
 			});
 		}
-		if (scene == "settings-network" || scene == "settings-account") {
-			const int targetSettingsCategory =
-				scene == "settings-network" ? 4 : 5;
+		if (scene == "settings-account") {
+			const int targetSettingsCategory = 4;
 			QTimer::singleShot(1200, &engine,
 				[&engine, targetSettingsCategory]() {
 				if (!engine.rootObjects().isEmpty())

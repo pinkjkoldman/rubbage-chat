@@ -45,6 +45,8 @@ ApplicationWindow {
     property int settingsCategory: 0
     property bool emojiOpen: false
     property var drafts: ({})
+    property string editingMessageId: ""
+    property string replyPreview: ""
     signal settingsSectionRequested(int index)
 
     function normalizedQuery(value) {
@@ -96,6 +98,18 @@ ApplicationWindow {
         else
             delete next[account]
         drafts = next
+    }
+
+    function submitComposer(text, account) {
+        if (editingMessageId.length) {
+            appController.editMessage(editingMessageId, text)
+            editingMessageId = ""
+            return true
+        }
+        let sent = appController.sendMessage(text)
+        if (sent)
+            replyPreview = ""
+        return sent
     }
 
     color: bg
@@ -1024,7 +1038,7 @@ ApplicationWindow {
                         }
 
                         Repeater {
-                            model: ["外观", "聊天", "通知", "隐私", "网络", "账号"]
+                            model: ["外观", "聊天", "通知", "隐私", "账号"]
                             delegate: Rectangle {
                                 Layout.fillWidth: true
                                 height: 48
@@ -1326,7 +1340,9 @@ ApplicationWindow {
                                 anchors.rightMargin: root.space3
                                 anchors.topMargin: root.space2
                                 anchors.bottomMargin: root.space3
-                                text: modelData.body
+                                text: (modelData.replyPreview || "").length
+                                    ? "↪ " + modelData.replyPreview + "\n" + modelData.body
+                                    : modelData.body
                                 color: modelData.mine ? root.accentText : root.textMain
                                 font.pixelSize: 14
                                 font.weight: root.bodyWeight
@@ -1338,6 +1354,11 @@ ApplicationWindow {
                                 anchors.bottom: parent.bottom
                                 anchors.bottomMargin: 4
                                 text: modelData.time
+                                    + (modelData.edited ? " · 已编辑" : "")
+                                    + (modelData.mine && modelData.status === "queued"
+                                        ? " · 待发送"
+                                        : modelData.mine && modelData.status === "read"
+                                            ? " · 已读" : "")
                                 color: modelData.mine ? root.accentText : root.textMuted
                                 opacity: modelData.mine ? 0.72 : 1
                                 font.pixelSize: 9
@@ -1358,6 +1379,9 @@ ApplicationWindow {
                                 acceptedButtons: Qt.RightButton
                                 onTapped: function(eventPoint, button) {
                                     messageMenu.messageBody = modelData.body
+                                    messageMenu.messageId = modelData.id || ""
+                                    messageMenu.mine = modelData.mine || false
+                                    messageMenu.recalled = modelData.recalled || false
                                     messageMenu.canDownload = modelData.type === "file"
                                         && modelData.attachmentId.length > 0
                                     messageMenu.attachmentId = modelData.attachmentId || ""
@@ -1423,6 +1447,40 @@ ApplicationWindow {
                                             ? root.panelAlt : "transparent"
                                     }
                                     onClicked: composer.insert(composer.cursorPosition, modelData)
+                                }
+                            }
+                        }
+
+                        RowLayout {
+                            visible: root.editingMessageId.length > 0
+                                || root.replyPreview.length > 0
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: visible ? 36 : 0
+                            Rectangle {
+                                Layout.fillWidth: true
+                                Layout.fillHeight: true
+                                radius: root.radiusControl
+                                color: root.accentSoft
+                                Text {
+                                    anchors.fill: parent
+                                    anchors.margins: root.space2
+                                    text: root.editingMessageId.length
+                                        ? "正在编辑消息"
+                                        : "回复：" + root.replyPreview
+                                    elide: Text.ElideRight
+                                    color: root.textMain
+                                    font.pixelSize: 12
+                                    font.weight: root.bodyWeight
+                                    verticalAlignment: Text.AlignVCenter
+                                }
+                            }
+                            GhostButton {
+                                text: "取消"
+                                Layout.preferredWidth: 64
+                                onClicked: {
+                                    root.editingMessageId = ""
+                                    root.replyPreview = ""
+                                    appController.clearReply()
                                 }
                             }
                         }
@@ -1502,7 +1560,7 @@ ApplicationWindow {
                                             ? enter && !(event.modifiers & Qt.ShiftModifier)
                                             : enter && (event.modifiers & Qt.ControlModifier)
                                         if (shouldSend) {
-                                            if (appController.sendMessage(text)) {
+                                            if (root.submitComposer(text, draftAccount)) {
                                                 text = ""
                                                 root.setDraft(draftAccount, "")
                                             }
@@ -1537,7 +1595,8 @@ ApplicationWindow {
                                 enabled: composer.text.trim().length > 0
                                     && composer.length <= 4000
                                 onClicked: {
-                                    if (appController.sendMessage(composer.text)) {
+                                    if (root.submitComposer(composer.text,
+                                            composer.draftAccount)) {
                                         composer.text = ""
                                         root.setDraft(composer.draftAccount, "")
                                         composer.forceActiveFocus()
@@ -1808,7 +1867,6 @@ ApplicationWindow {
                     {title: "聊天", subtitle: "消息发送方式", kind: "chat", badge: "聊"},
                     {title: "通知", subtitle: "控制新消息提醒", kind: "notifications", badge: "通"},
                     {title: "隐私", subtitle: "在线状态与服务端数据", kind: "privacy", badge: "隐"},
-                    {title: "网络", subtitle: "服务器地址与通信端口", kind: "network", badge: "网"},
                     {title: "账号", subtitle: "个人资料与切换账号", kind: "account", badge: "账"}
                 ]
 
@@ -1887,7 +1945,6 @@ ApplicationWindow {
                 delegate: Item {
                     width: settingsView.width
                     height: modelData.kind === "appearance" ? 192
-                        : modelData.kind === "network" ? 240
                         : modelData.kind === "account" ? 192 : 136
 
                     ElevatedSurface {
@@ -2088,70 +2145,6 @@ ApplicationWindow {
                             }
                         }
 
-                        ColumnLayout {
-                            visible: modelData.kind === "network"
-                            Layout.fillWidth: true
-                            Layout.topMargin: root.space2
-                            spacing: root.space2
-                            RowLayout {
-                                Layout.fillWidth: true
-                                AppTextField {
-                                    id: serverHostField
-                                    Layout.fillWidth: true
-                                    placeholderText: "服务器地址，例如 100.64.0.10"
-                                    text: appController.serverHost
-                                    enabled: !appController.networkLocked
-                                }
-                                AppTextField {
-                                    id: chatPortField
-                                    Layout.preferredWidth: 112
-                                    placeholderText: "消息端口"
-                                    inputMethodHints: Qt.ImhDigitsOnly
-                                    text: appController.chatPort.toString()
-                                    enabled: !appController.networkLocked
-                                }
-                                AppTextField {
-                                    id: filePortField
-                                    Layout.preferredWidth: 112
-                                    placeholderText: "兼容端口"
-                                    inputMethodHints: Qt.ImhDigitsOnly
-                                    text: appController.filePort.toString()
-                                    enabled: !appController.networkLocked
-                                    visible: !appController.networkLocked
-                                }
-                            }
-                            RowLayout {
-                                Layout.fillWidth: true
-                                Text {
-                                    Layout.fillWidth: true
-                                    text: appController.connected
-                                        ? (appController.tlsEnabled ? "TLS 安全连接 · " : "已连接 · ")
-                                            + appController.serverHost + ":" + appController.chatPort
-                                        : "未连接，客户端会自动退避重试"
-                                    color: appController.connected ? root.good : root.textMuted
-                                    font.pixelSize: 11
-                                    font.weight: root.bodyWeight
-                                }
-                                PrimaryButton {
-                                    Layout.preferredWidth: 112
-                                    text: "保存并重连"
-                                    visible: !appController.networkLocked
-                                    onClicked: appController.applyNetworkSettings(
-                                        serverHostField.text,
-                                        parseInt(chatPortField.text),
-                                        parseInt(filePortField.text))
-                                }
-                            }
-                            Text {
-                                text: appController.networkLocked
-                                    ? "公网测试版已锁定服务器和 TLS 配置。"
-                                    : "配置保存在本机；环境变量配置优先。"
-                                color: root.textMuted
-                                font.pixelSize: 11
-                                font.weight: root.bodyWeight
-                            }
-                        }
-
                         RowLayout {
                             visible: modelData.kind === "account"
                             Layout.fillWidth: true
@@ -2208,12 +2201,47 @@ ApplicationWindow {
     Menu {
         id: messageMenu
         property string messageBody: ""
+        property string messageId: ""
+        property bool mine: false
+        property bool recalled: false
         property bool canDownload: false
         property string attachmentId: ""
         MenuItem {
             text: "复制消息"
             enabled: messageMenu.messageBody.length > 0
             onTriggered: appController.copyText(messageMenu.messageBody)
+        }
+        MenuItem {
+            text: "回复"
+            enabled: messageMenu.messageId.length > 0 && !messageMenu.recalled
+            onTriggered: {
+                root.replyPreview = messageMenu.messageBody
+                appController.replyToMessage(messageMenu.messageId,
+                    messageMenu.messageBody)
+                composer.forceActiveFocus()
+            }
+        }
+        MenuItem {
+            text: "回应 👍"
+            enabled: messageMenu.messageId.length > 0 && !messageMenu.recalled
+            onTriggered: appController.reactToMessage(
+                messageMenu.messageId, "👍")
+        }
+        MenuItem {
+            text: "编辑"
+            visible: messageMenu.mine && !messageMenu.recalled
+            enabled: messageMenu.messageId.length > 0
+            onTriggered: {
+                root.editingMessageId = messageMenu.messageId
+                composer.text = messageMenu.messageBody
+                composer.forceActiveFocus()
+            }
+        }
+        MenuItem {
+            text: "撤回"
+            visible: messageMenu.mine && !messageMenu.recalled
+            enabled: messageMenu.messageId.length > 0
+            onTriggered: appController.recallMessage(messageMenu.messageId)
         }
         MenuItem {
             visible: messageMenu.canDownload

@@ -12,5 +12,6 @@ constexpr int Version = 2;
 QByteArray encode(const QJsonObject& packet);
 bool takeFrames(QByteArray& buffer, QList<QJsonObject>& packets, QString* error = nullptr);
 QJsonObject request(const QString& action, const QJsonObject& data = {},
-	const QString& token = {}, const QString& requestId = {});
+	const QString& token = {}, const QString& requestId = {},
+	const QString& deviceId = {});
 }

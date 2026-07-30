@@ -11,10 +11,14 @@ PROJECT_ROOT = $$clean_path($$PWD/../..)
 SOURCES += \
     main.cpp \
     application/ChatController.cpp \
+    network/EndpointDiscovery.cpp \
+    storage/ReliableOutbox.cpp \
     $$PROJECT_ROOT/libs/protocol/ChatProtocol.cpp
 
 HEADERS += \
     application/ChatController.h \
+    network/EndpointDiscovery.h \
+    storage/ReliableOutbox.h \
     $$PROJECT_ROOT/libs/protocol/ChatProtocol.h
 
 INCLUDEPATH += $$PROJECT_ROOT/libs/protocol

@@ -1,11 +1,16 @@
 #include "MongoChatStore.h"
 
 #include <QCryptographicHash>
+#include <QCoreApplication>
 #include <QDateTime>
+#include <QDir>
+#include <QFile>
 #include <QJsonDocument>
 #include <QMessageAuthenticationCode>
 #include <QRandomGenerator>
 #include <QRegularExpression>
+#include <QSaveFile>
+#include <QSettings>
 #include <QUuid>
 
 #include <bsoncxx/builder/basic/document.hpp>
@@ -15,6 +20,7 @@
 #include <mongocxx/exception/exception.hpp>
 #include <mongocxx/instance.hpp>
 #include <mongocxx/options/find.hpp>
+#include <mongocxx/options/find_one_and_update.hpp>
 #include <mongocxx/options/index.hpp>
 #include <mongocxx/options/update.hpp>
 #include <mongocxx/uri.hpp>
@@ -90,6 +96,12 @@ QString canonicalB(const QString& first, const QString& second)
 	return first < second ? second : first;
 }
 
+QString conversationId(const QString& first, const QString& second)
+{
+	return QStringLiteral("dm:%1:%2")
+		.arg(canonicalA(first, second), canonicalB(first, second));
+}
+
 QJsonObject publicUser(const QJsonObject& user)
 {
 	const QString name = user.value("name").toString();
@@ -115,10 +127,22 @@ public:
 		: client(mongocxx::uri(uri.toStdString()))
 		, database(client[databaseName.toStdString()])
 	{
+		QSettings config(QCoreApplication::applicationDirPath()
+			+ QStringLiteral("/rubbagechat.ini"), QSettings::IniFormat);
+		attachmentRoot = qEnvironmentVariable("RUBBAGECHAT_ATTACHMENT_ROOT",
+			config.value("storage/attachmentRoot",
+				QCoreApplication::applicationDirPath()
+					+ QStringLiteral("/data/attachments")).toString());
+		if (attachmentRoot.trimmed().isEmpty()) {
+			attachmentRoot = QCoreApplication::applicationDirPath()
+				+ QStringLiteral("/data/attachments");
+		}
+		QDir().mkpath(attachmentRoot);
 	}
 
 	mongocxx::client client;
 	mongocxx::database database;
+	QString attachmentRoot;
 
 	QJsonObject findUser(const QString& account)
 	{
@@ -173,6 +197,27 @@ public:
 		return !salt.isEmpty() && rounds >= 10000
 			&& actual == user.value("passwordHash").toString().toLatin1();
 	}
+
+	qint64 nextSequence(const QString& id)
+	{
+		mongocxx::options::find_one_and_update options;
+		options.upsert(true);
+		options.return_document(mongocxx::options::return_document::k_after);
+		auto result = database["conversation_counters"].find_one_and_update(
+			make_document(kvp("_id", id.toStdString())),
+			make_document(kvp("$inc", make_document(kvp("seq", 1)))),
+			options);
+		if (!result)
+			fail(QStringLiteral("无法分配消息序列号"));
+		return qint64(jsonObject(result->view()).value("seq").toDouble());
+	}
+
+	QJsonObject findMessage(const QString& messageId)
+	{
+		auto result = database["messages"].find_one(make_document(
+			kvp("id", messageId.toStdString())));
+		return result ? jsonObject(result->view()) : QJsonObject{};
+	}
 };
 
 MongoChatStore::MongoChatStore(const QString& uri, const QString& databaseName)
@@ -195,6 +240,8 @@ bool MongoChatStore::initialize(
 			make_document(kvp("tokenHash", 1)), unique);
 		d->database["sessions"].create_index(
 			make_document(kvp("expiresAt", 1)));
+		d->database["sessions"].create_index(
+			make_document(kvp("account", 1), kvp("deviceId", 1)));
 		d->database["friendships"].create_index(
 			make_document(kvp("a", 1), kvp("b", 1)), unique);
 		d->database["friend_requests"].create_index(
@@ -203,8 +250,14 @@ bool MongoChatStore::initialize(
 			make_document(kvp("clientMessageId", 1)), unique);
 		d->database["messages"].create_index(
 			make_document(kvp("a", 1), kvp("b", 1), kvp("createdAt", 1)));
+		d->database["messages"].create_index(
+			make_document(kvp("conversationId", 1), kvp("seq", 1)));
+		d->database["messages"].create_index(
+			make_document(kvp("id", 1)), unique);
 		d->database["conversation_options"].create_index(
 			make_document(kvp("owner", 1), kvp("peer", 1)), unique);
+		d->database["conversation_cursors"].create_index(
+			make_document(kvp("owner", 1), kvp("conversationId", 1)), unique);
 
 		d->database["sessions"].delete_many(make_document(
 			kvp("expiresAt", make_document(kvp("$lte", nowMs())))));
@@ -252,7 +305,8 @@ QJsonObject MongoChatStore::registerUser(const QString& name, const QString& pas
 	return {{"account", account}, {"name", cleanName}};
 }
 
-QJsonObject MongoChatStore::login(const QString& account, const QString& password)
+QJsonObject MongoChatStore::login(const QString& account, const QString& password,
+	const QString& deviceId)
 {
 	if (!QRegularExpression("^\\d{9}$").match(account).hasMatch())
 		fail(QStringLiteral("账号必须是 9 位数字"));
@@ -262,13 +316,22 @@ QJsonObject MongoChatStore::login(const QString& account, const QString& passwor
 	d->database["sessions"].delete_many(make_document(
 		kvp("expiresAt", make_document(kvp("$lte", nowMs())))));
 	const QString token = QString::fromLatin1(randomBytes(32).toHex());
+	const QString normalizedDeviceId = deviceId.trimmed().isEmpty()
+		? QUuid::createUuid().toString(QUuid::WithoutBraces)
+		: deviceId.trimmed().left(128);
+	d->database["sessions"].delete_many(make_document(
+		kvp("account", account.toStdString()),
+		kvp("deviceId", normalizedDeviceId.toStdString())));
 	d->database["sessions"].insert_one(make_document(
 		kvp("tokenHash", tokenHash(token).toStdString()),
 		kvp("account", account.toStdString()),
+		kvp("deviceId", normalizedDeviceId.toStdString()),
 		kvp("createdAt", nowMs()),
+		kvp("lastSeenAt", nowMs()),
 		kvp("expiresAt", nowMs() + 30LL * 24 * 60 * 60 * 1000)));
 	QJsonObject result = publicUser(user);
 	result.insert("token", token);
+	result.insert("deviceId", normalizedDeviceId);
 	result.insert("snapshot", snapshot(account));
 	return result;
 }
@@ -280,7 +343,9 @@ QString MongoChatStore::authenticate(const QString& token)
 	auto session = d->database["sessions"].find_one(make_document(
 		kvp("tokenHash", tokenHash(token).toStdString()),
 		kvp("expiresAt", make_document(kvp("$gt", nowMs())))));
-	return session ? jsonObject(session->view()).value("account").toString() : QString{};
+	if (!session)
+		return {};
+	return jsonObject(session->view()).value("account").toString();
 }
 
 void MongoChatStore::logout(const QString& token)
@@ -421,19 +486,33 @@ void MongoChatStore::removeFriend(const QString& owner, const QString& peer)
 
 QJsonObject MongoChatStore::sendMessage(const QString& sender, const QString& receiver,
 	const QString& body, const QString& clientMessageId, const QString& type,
-	const QString& attachmentId)
+	const QString& attachmentId, const QString& senderDeviceId,
+	const QString& replyToId)
 {
 	if (!d->friends(sender, receiver))
 		fail(QStringLiteral("只有好友之间才能发送消息"));
 	const QString cleanBody = body.trimmed();
 	if (cleanBody.isEmpty() || cleanBody.size() > 4000)
 		fail(QStringLiteral("消息长度需要在 1-4000 个字符之间"));
-	const QString id = clientMessageId.isEmpty()
+	const QString clientId = clientMessageId.isEmpty()
 		? QUuid::createUuid().toString(QUuid::WithoutBraces) : clientMessageId;
-	const qint64 createdAt = nowMs();
+	if (auto existing = d->database["messages"].find_one(
+		make_document(kvp("clientMessageId", clientId.toStdString()))))
+		return jsonObject(existing->view());
+
+	const QString conversation = conversationId(sender, receiver);
+	QJsonObject reply;
+	if (!replyToId.isEmpty()) {
+		reply = d->findMessage(replyToId);
+		if (reply.isEmpty()
+			|| reply.value("conversationId").toString() != conversation)
+			fail(QStringLiteral("回复的消息不存在或不属于当前会话"));
+	}
 	QJsonObject message{
 		{"id", QUuid::createUuid().toString(QUuid::WithoutBraces)},
-		{"clientMessageId", id},
+		{"clientMessageId", clientId},
+		{"conversationId", conversation},
+		{"seq", double(d->nextSequence(conversation))},
 		{"sender", sender},
 		{"receiver", receiver},
 		{"a", canonicalA(sender, receiver)},
@@ -441,15 +520,25 @@ QJsonObject MongoChatStore::sendMessage(const QString& sender, const QString& re
 		{"body", cleanBody},
 		{"type", type},
 		{"attachmentId", attachmentId},
-		{"createdAt", double(createdAt)},
+		{"senderDeviceId", senderDeviceId.left(128)},
+		{"status", "accepted"},
+		{"editedAt", 0},
+		{"recalledAt", 0},
+		{"reactions", QJsonArray{}},
+		{"createdAt", double(nowMs())},
 		{"read", false}
 	};
+	if (!reply.isEmpty()) {
+		message.insert("replyToId", reply.value("id").toString());
+		message.insert("replyPreview", reply.value("body").toString().left(120));
+		message.insert("replySender", reply.value("sender").toString());
+	}
 	try {
 		d->database["messages"].insert_one(bson(message).view());
 	}
 	catch (const mongocxx::exception&) {
 		auto existing = d->database["messages"].find_one(
-			make_document(kvp("clientMessageId", id.toStdString())));
+			make_document(kvp("clientMessageId", clientId.toStdString())));
 		if (!existing)
 			throw;
 		return jsonObject(existing->view());
@@ -459,27 +548,182 @@ QJsonObject MongoChatStore::sendMessage(const QString& sender, const QString& re
 
 QJsonArray MongoChatStore::history(const QString& owner, const QString& peer, int limit)
 {
+	return syncMessages(owner, peer, 0, limit).value("messages").toArray();
+}
+
+QJsonObject MongoChatStore::syncMessages(
+	const QString& owner, const QString& peer, qint64 afterSeq, int limit)
+{
 	if (!d->friends(owner, peer))
 		fail(QStringLiteral("只有好友之间才能读取会话"));
 	const QJsonObject preference = conversationOption(owner, peer);
 	const qint64 hiddenBefore = qint64(preference.value("hiddenBefore").toDouble());
-	QJsonObject filter{
-		{"a", canonicalA(owner, peer)},
-		{"b", canonicalB(owner, peer)}
-	};
+	QJsonObject filter{{"conversationId", conversationId(owner, peer)}};
 	if (hiddenBefore > 0)
 		filter.insert("createdAt", QJsonObject{{"$gt", double(hiddenBefore)}});
+	if (afterSeq > 0)
+		filter.insert("seq", QJsonObject{{"$gt", double(afterSeq)}});
 	mongocxx::options::find options;
-	options.sort(make_document(kvp("createdAt", 1)));
-	options.limit(qBound(1, limit, 500));
+	const int boundedLimit = qBound(1, limit, 500);
+	options.sort(afterSeq > 0
+		? make_document(kvp("seq", 1))
+		: make_document(kvp("seq", -1)));
+	options.limit(boundedLimit + 1);
 	QJsonArray messages;
 	for (const auto& row : d->database["messages"].find(bson(filter).view(), options))
 		messages.append(jsonObject(row));
-	d->database["messages"].update_many(make_document(
-		kvp("sender", peer.toStdString()), kvp("receiver", owner.toStdString()),
-		kvp("read", false)),
-		make_document(kvp("$set", make_document(kvp("read", true)))));
-	return messages;
+	const bool hasMore = messages.size() > boundedLimit;
+	if (hasMore)
+		messages.removeLast();
+	if (afterSeq <= 0) {
+		QJsonArray chronological;
+		for (qsizetype i = messages.size(); i > 0; --i)
+			chronological.append(messages.at(i - 1));
+		messages = chronological;
+	}
+	qint64 nextCursor = afterSeq;
+	for (const QJsonValue& value : messages)
+		nextCursor = qMax(nextCursor, qint64(value.toObject().value("seq").toDouble()));
+	return {
+		{"conversationId", conversationId(owner, peer)},
+		{"messages", messages},
+		{"nextCursor", double(nextCursor)},
+		{"hasMore", hasMore}
+	};
+}
+
+QJsonObject MongoChatStore::acknowledgeMessage(const QString& account,
+	const QString& peer, qint64 seq, const QString& kind)
+{
+	if (seq <= 0 || (kind != "delivered" && kind != "read"))
+		fail(QStringLiteral("无效的消息回执"));
+	if (!d->friends(account, peer))
+		fail(QStringLiteral("只有好友之间才能提交消息回执"));
+	const QString field = kind == "read" ? "lastReadSeq" : "lastDeliveredSeq";
+	mongocxx::options::update upsert;
+	upsert.upsert(true);
+	const QString conversation = conversationId(account, peer);
+	d->database["conversation_cursors"].update_one(
+		make_document(kvp("owner", account.toStdString()),
+			kvp("conversationId", conversation.toStdString())),
+		make_document(
+			kvp("$max", make_document(kvp(field.toStdString(), seq))),
+			kvp("$set", make_document(kvp("updatedAt", nowMs()))),
+			kvp("$setOnInsert", make_document(
+				kvp("owner", account.toStdString()),
+				kvp("peer", peer.toStdString()),
+				kvp("conversationId", conversation.toStdString())))),
+		upsert);
+	if (kind == "read") {
+		d->database["messages"].update_many(
+			make_document(kvp("conversationId", conversation.toStdString()),
+				kvp("sender", peer.toStdString()),
+				kvp("seq", make_document(kvp("$lte", seq)))),
+			make_document(kvp("$set", make_document(kvp("read", true)))));
+	}
+	return {
+		{"account", account}, {"peer", peer},
+		{"conversationId", conversation}, {"seq", double(seq)},
+		{"kind", kind}, {"at", double(nowMs())}
+	};
+}
+
+QJsonObject MongoChatStore::editMessage(const QString& account,
+	const QString& messageId, const QString& body)
+{
+	const QString cleanBody = body.trimmed();
+	if (cleanBody.isEmpty() || cleanBody.size() > 4000)
+		fail(QStringLiteral("消息长度需要在 1-4000 个字符之间"));
+	const QJsonObject message = d->findMessage(messageId);
+	if (message.isEmpty() || message.value("sender").toString() != account)
+		fail(QStringLiteral("只能编辑自己发送的消息"));
+	if (message.value("recalledAt").toDouble() > 0)
+		fail(QStringLiteral("消息已撤回，无法编辑"));
+	if (nowMs() - qint64(message.value("createdAt").toDouble()) > 15LL * 60 * 1000)
+		fail(QStringLiteral("消息发送超过 15 分钟，无法编辑"));
+	d->database["messages"].update_one(
+		make_document(kvp("id", messageId.toStdString())),
+		make_document(kvp("$set", make_document(
+			kvp("body", cleanBody.toStdString()), kvp("editedAt", nowMs())))));
+	QJsonObject updated = d->findMessage(messageId);
+	updated.insert("eventType", "edited");
+	return updated;
+}
+
+QJsonObject MongoChatStore::recallMessage(
+	const QString& account, const QString& messageId)
+{
+	const QJsonObject message = d->findMessage(messageId);
+	if (message.isEmpty() || message.value("sender").toString() != account)
+		fail(QStringLiteral("只能撤回自己发送的消息"));
+	if (nowMs() - qint64(message.value("createdAt").toDouble()) > 2LL * 60 * 1000)
+		fail(QStringLiteral("消息发送超过 2 分钟，无法撤回"));
+	d->database["messages"].update_one(
+		make_document(kvp("id", messageId.toStdString())),
+		make_document(kvp("$set", make_document(
+			kvp("body", ""), kvp("recalledAt", nowMs()),
+			kvp("status", "recalled")))));
+	QJsonObject updated = d->findMessage(messageId);
+	updated.insert("eventType", "recalled");
+	return updated;
+}
+
+QJsonObject MongoChatStore::reactToMessage(const QString& account,
+	const QString& messageId, const QString& emoji)
+{
+	const QString normalizedEmoji = emoji.trimmed().left(16);
+	if (normalizedEmoji.isEmpty())
+		fail(QStringLiteral("表情回应不能为空"));
+	const QJsonObject message = d->findMessage(messageId);
+	if (message.isEmpty())
+		fail(QStringLiteral("消息不存在"));
+	const QString peer = message.value("sender").toString() == account
+		? message.value("receiver").toString() : message.value("sender").toString();
+	if (message.value("conversationId").toString() != conversationId(account, peer)
+		|| !d->friends(account, peer))
+		fail(QStringLiteral("无权回应这条消息"));
+	d->database["messages"].update_one(
+		make_document(kvp("id", messageId.toStdString())),
+		make_document(kvp("$pull", make_document(
+			kvp("reactions", make_document(kvp("account", account.toStdString())))))));
+	d->database["messages"].update_one(
+		make_document(kvp("id", messageId.toStdString())),
+		make_document(kvp("$push", make_document(kvp("reactions",
+			make_document(kvp("account", account.toStdString()),
+				kvp("emoji", normalizedEmoji.toStdString()),
+				kvp("createdAt", nowMs())))))));
+	QJsonObject updated = d->findMessage(messageId);
+	updated.insert("eventType", "reaction");
+	return updated;
+}
+
+QJsonArray MongoChatStore::devices(const QString& account)
+{
+	QJsonArray result;
+	mongocxx::options::find options;
+	options.sort(make_document(kvp("lastSeenAt", -1)));
+	for (const auto& row : d->database["sessions"].find(
+		make_document(kvp("account", account.toStdString())), options)) {
+		const QJsonObject session = jsonObject(row);
+		result.append(QJsonObject{
+			{"deviceId", session.value("deviceId").toString()},
+			{"createdAt", session.value("createdAt").toDouble()},
+			{"lastSeenAt", session.value("lastSeenAt").toDouble()},
+			{"expiresAt", session.value("expiresAt").toDouble()}
+		});
+	}
+	return result;
+}
+
+void MongoChatStore::revokeDevice(const QString& account,
+	const QString& deviceId, const QString& currentToken)
+{
+	Q_UNUSED(currentToken)
+	if (deviceId.trimmed().isEmpty())
+		fail(QStringLiteral("设备标识不能为空"));
+	d->database["sessions"].delete_many(make_document(
+		kvp("account", account.toStdString()),
+		kvp("deviceId", deviceId.trimmed().toStdString())));
 }
 
 QJsonObject MongoChatStore::storeAttachment(const QString& owner,
@@ -494,12 +738,22 @@ QJsonObject MongoChatStore::storeAttachment(const QString& owner,
 	const QString id = QUuid::createUuid().toString(QUuid::WithoutBraces);
 	const QString sha256 = QString::fromLatin1(
 		QCryptographicHash::hash(bytes, QCryptographicHash::Sha256).toHex());
+	const QDate date = QDate::currentDate();
+	const QString storageKey = QStringLiteral("%1/%2/%3.bin")
+		.arg(date.year()).arg(date.month(), 2, 10, QChar('0')).arg(id);
+	const QString target = QDir(d->attachmentRoot).filePath(storageKey);
+	QDir().mkpath(QFileInfo(target).absolutePath());
+	QSaveFile file(target);
+	if (!file.open(QIODevice::WriteOnly)
+		|| file.write(bytes) != bytes.size() || !file.commit())
+		fail(QStringLiteral("附件对象存储写入失败"));
 	d->database["attachments"].insert_one(make_document(
 		kvp("id", id.toStdString()), kvp("owner", owner.toStdString()),
 		kvp("receiver", receiver.toStdString()), kvp("fileName", safeName.toStdString()),
 		kvp("mimeType", mimeType.left(120).toStdString()), kvp("size", qint64(bytes.size())),
 		kvp("sha256", sha256.toStdString()),
-		kvp("base64", bytes.toBase64().toStdString()), kvp("createdAt", nowMs())));
+		kvp("storageProvider", "filesystem"),
+		kvp("storageKey", storageKey.toStdString()), kvp("createdAt", nowMs())));
 	return {{"id", id}, {"fileName", safeName}, {"size", double(bytes.size())},
 		{"sha256", sha256}};
 }
@@ -515,13 +769,35 @@ QJsonObject MongoChatStore::loadAttachment(
 	if (attachment.value("owner").toString() != requester
 		&& attachment.value("receiver").toString() != requester)
 		fail(QStringLiteral("无权下载该附件"));
+	QByteArray bytes;
+	const QString storageKey = attachment.value("storageKey").toString();
+	if (!storageKey.isEmpty()) {
+		const QString cleanPath = QDir::fromNativeSeparators(QDir::cleanPath(
+			QDir(d->attachmentRoot).filePath(storageKey)));
+		const QString cleanRoot = QDir::fromNativeSeparators(
+			QDir::cleanPath(d->attachmentRoot)) + QChar('/');
+		if (!cleanPath.startsWith(cleanRoot, Qt::CaseInsensitive))
+			fail(QStringLiteral("附件存储路径无效"));
+		QFile file(cleanPath);
+		if (!file.open(QIODevice::ReadOnly))
+			fail(QStringLiteral("附件对象不存在"));
+		bytes = file.readAll();
+	}
+	else {
+		bytes = QByteArray::fromBase64(
+			attachment.value("base64").toString().toLatin1());
+	}
+	const QString actualHash = QString::fromLatin1(
+		QCryptographicHash::hash(bytes, QCryptographicHash::Sha256).toHex());
+	if (bytes.isEmpty() || actualHash != attachment.value("sha256").toString())
+		fail(QStringLiteral("附件完整性校验失败"));
 	return {
 		{"id", attachment.value("id").toString()},
 		{"fileName", attachment.value("fileName").toString()},
 		{"mimeType", attachment.value("mimeType").toString()},
 		{"size", attachment.value("size").toDouble()},
 		{"sha256", attachment.value("sha256").toString()},
-		{"base64", attachment.value("base64").toString()}
+		{"base64", QString::fromLatin1(bytes.toBase64())}
 	};
 }
 

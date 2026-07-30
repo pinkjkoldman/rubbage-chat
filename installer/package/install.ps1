@@ -53,7 +53,7 @@ New-UninstallShortcut (Join-Path $startMenuDirectory 'Uninstall RubbageChat.lnk'
 $uninstallKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\RubbageChat'
 New-Item -Path $uninstallKey -Force | Out-Null
 Set-ItemProperty -Path $uninstallKey -Name DisplayName -Value 'RubbageChat'
-Set-ItemProperty -Path $uninstallKey -Name DisplayVersion -Value '2.4.0-beta.1'
+Set-ItemProperty -Path $uninstallKey -Name DisplayVersion -Value '2.5.0-beta.1'
 Set-ItemProperty -Path $uninstallKey -Name Publisher -Value 'RubbageChat'
 Set-ItemProperty -Path $uninstallKey -Name InstallLocation -Value $installDirectory
 Set-ItemProperty -Path $uninstallKey -Name DisplayIcon -Value $icon

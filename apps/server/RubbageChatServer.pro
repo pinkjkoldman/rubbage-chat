@@ -1,4 +1,4 @@
-QT += core gui network qml quick quickcontrols2
+QT += core gui network qml quick quickcontrols2 concurrent
 
 TEMPLATE = app
 TARGET = RubbageChatServer
@@ -24,11 +24,13 @@ DEFINES += BSONCXX_STATIC MONGOCXX_STATIC BSON_STATIC MONGOC_STATIC
 
 SOURCES += \
     main.cpp \
+    application/ChatCommandService.cpp \
     network/ChatServer.cpp \
     storage/MongoChatStore.cpp \
     $$PROJECT_ROOT/libs/protocol/ChatProtocol.cpp
 
 HEADERS += \
+    application/ChatCommandService.h \
     network/ChatServer.h \
     storage/MongoChatStore.h \
     $$PROJECT_ROOT/libs/protocol/ChatProtocol.h

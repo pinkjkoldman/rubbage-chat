@@ -1,5 +1,14 @@
 # RubbageChat 架构
 
+## 2.5 关键模块
+
+- `EndpointDiscovery`：只暴露一个“解析可用服务端”操作，封装 HTTPS Bootstrap、
+  文档校验、七天有效期、缓存与内置兜底。
+- `ReliableOutbox`：原子持久化未确认文字消息；重连后复用 `clientMessageId` 重放。
+- `ChatCommandService`：有界线程池和过载保护，所有阻塞业务工作离开 TCP 事件循环。
+- `MongoChatStore`：维护会话严格递增 `seq`、同步游标、回执、设备会话和消息变更。
+- 附件对象目录：MongoDB 只存储文件元数据和 SHA-256，文件内容写入可挂载持久卷。
+
 ## 设计目标
 
 系统采用服务端权威模型。用户身份、会话、好友关系、消息和附件只由服务端修改并持久化到 MongoDB；客户端提交意图并渲染服务端返回的快照。

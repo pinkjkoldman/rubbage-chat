@@ -24,7 +24,7 @@ public:
 		const QString& requestToken = {}, int timeout = 15000)
 	{
 		const QJsonObject packet = ChatProtocol::request(
-			action, data, requestToken);
+			action, data, requestToken, {}, deviceId);
 		const QString id = packet.value("requestId").toString();
 		socket.write(ChatProtocol::encode(packet));
 		socket.waitForBytesWritten(5000);
@@ -72,6 +72,8 @@ public:
 	QTcpSocket socket;
 	QByteArray buffer;
 	QList<QJsonObject> events;
+	QString deviceId =
+		QUuid::createUuid().toString(QUuid::WithoutBraces);
 
 private:
 	bool nextPacket(QJsonObject& result, int timeout)
@@ -157,11 +159,13 @@ int main(int argc, char* argv[])
 	}
 
 	const QString body = "Mongo persisted " + suffix;
+	const QString clientMessageId =
+		QUuid::createUuid().toString(QUuid::WithoutBraces);
 	const QJsonObject send = alpha.request("send_message", {
 		{"account", betaAccount},
 		{"body", body},
 		{"sender", betaAccount},
-		{"clientMessageId", QUuid::createUuid().toString(QUuid::WithoutBraces)}
+		{"clientMessageId", clientMessageId}
 	}, alphaToken);
 	if (!ok(send)) {
 		qCritical() << "消息发送失败" << send;
@@ -172,10 +176,61 @@ int main(int argc, char* argv[])
 		qCritical("服务端错误地信任了客户端 sender 字段");
 		return 6;
 	}
+	const qint64 textSeq = qint64(stored.value("seq").toDouble());
+	const QString textMessageId = stored.value("id").toString();
+	if (textSeq <= 0 || textMessageId.isEmpty()
+		|| stored.value("conversationId").toString().isEmpty()) {
+		qCritical() << "消息序列或服务端消息 ID 缺失" << stored;
+		return 12;
+	}
+	const QJsonObject duplicate = alpha.request("send_message", {
+		{"account", betaAccount}, {"body", body},
+		{"clientMessageId", clientMessageId}
+	}, alphaToken);
+	const QJsonObject duplicateMessage =
+		duplicate.value("data").toObject().value("message").toObject();
+	if (!ok(duplicate) || duplicateMessage.value("id") != stored.value("id")
+		|| duplicateMessage.value("seq") != stored.value("seq")) {
+		qCritical() << "消息幂等重放失败" << duplicate;
+		return 13;
+	}
 	const QJsonObject event = beta.waitForEvent("message");
 	if (event.value("data").toObject().value("body").toString() != body) {
 		qCritical() << "实时消息事件缺失" << event;
 		return 7;
+	}
+	const QJsonObject ack = beta.request("ack_message", {
+		{"account", alphaAccount}, {"seq", double(textSeq)}, {"kind", "read"}
+	}, betaToken);
+	const QJsonObject receipt = alpha.waitForEvent("message_receipt");
+	if (!ok(ack) || receipt.value("data").toObject().value("kind") != "read"
+		|| qint64(receipt.value("data").toObject().value("seq").toDouble())
+			!= textSeq) {
+		qCritical() << "消息已读回执失败" << ack << receipt;
+		return 14;
+	}
+
+	const QString editedBody = body + " edited";
+	const QJsonObject edited = alpha.request("edit_message", {
+		{"messageId", textMessageId}, {"body", editedBody}
+	}, alphaToken);
+	const QJsonObject editedEvent = beta.waitForEvent("message_updated");
+	alpha.waitForEvent("message_updated");
+	if (!ok(edited)
+		|| editedEvent.value("data").toObject().value("body") != editedBody) {
+		qCritical() << "消息编辑同步失败" << edited << editedEvent;
+		return 15;
+	}
+	const QJsonObject reaction = beta.request("react_message", {
+		{"messageId", textMessageId}, {"emoji", "👍"}
+	}, betaToken);
+	const QJsonObject reactionEvent = alpha.waitForEvent("message_updated");
+	beta.waitForEvent("message_updated");
+	if (!ok(reaction)
+		|| reactionEvent.value("data").toObject()
+			.value("reactions").toArray().isEmpty()) {
+		qCritical() << "消息回应同步失败" << reaction << reactionEvent;
+		return 16;
 	}
 
 	const QJsonObject file = alpha.request("send_file", {
@@ -211,12 +266,38 @@ int main(int argc, char* argv[])
 	bool foundFile = false;
 	for (const QJsonValue& value : messages) {
 		const QJsonObject message = value.toObject();
-		foundText = foundText || message.value("body").toString() == body;
+		foundText = foundText || message.value("body").toString() == editedBody;
 		foundFile = foundFile || message.value("type").toString() == "file";
 	}
 	if (!ok(history) || !foundText || !foundFile) {
 		qCritical() << "MongoDB 历史消息读取失败" << history;
 		return 10;
+	}
+	const QJsonObject sync = beta.request("sync_messages", {
+		{"account", alphaAccount}, {"afterSeq", double(textSeq)}, {"limit", 50}
+	}, betaToken);
+	if (!ok(sync)
+		|| sync.value("data").toObject().value("messages").toArray().isEmpty()
+		|| qint64(sync.value("data").toObject().value("nextCursor").toDouble())
+			<= textSeq) {
+		qCritical() << "游标增量同步失败" << sync;
+		return 17;
+	}
+
+	const QJsonObject devices = alpha.request("list_devices", {}, alphaToken);
+	if (!ok(devices)
+		|| devices.value("data").toObject().value("devices").toArray().isEmpty()) {
+		qCritical() << "设备会话列表失败" << devices;
+		return 18;
+	}
+
+	const QJsonObject recalled = alpha.request("recall_message",
+		{{"messageId", textMessageId}}, alphaToken);
+	const QJsonObject recalledEvent = beta.waitForEvent("message_updated");
+	if (!ok(recalled)
+		|| recalledEvent.value("data").toObject().value("status") != "recalled") {
+		qCritical() << "消息撤回同步失败" << recalled << recalledEvent;
+		return 19;
 	}
 
 	const QJsonObject forged = alpha.request("snapshot", {}, "invalid-token");

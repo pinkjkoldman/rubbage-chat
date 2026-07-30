@@ -12,6 +12,7 @@
 #include <memory>
 
 class MongoChatStore;
+class ChatCommandService;
 class QTcpSocket;
 
 class ChatServer final : public QObject
@@ -64,6 +65,7 @@ private:
 		QByteArray buffer;
 		QString account;
 		QString token;
+		QString deviceId;
 		qint64 lastSeen = 0;
 		qint64 rateWindowStart = 0;
 		int requestsInWindow = 0;
@@ -101,6 +103,7 @@ private:
 	QHash<QTcpSocket*, ClientState> m_clients;
 	QHash<QString, RateBucket> m_rateBuckets;
 	std::unique_ptr<MongoChatStore> m_store;
+	std::unique_ptr<ChatCommandService> m_commandService;
 	QTimer m_heartbeatTimer;
 	QString m_mongoUri;
 	QString m_databaseName;
@@ -115,6 +118,8 @@ private:
 	bool m_running = false;
 	int m_maxConnections = 500;
 	int m_maxConnectionsPerIp = 12;
+	int m_businessWorkers = 8;
+	int m_maxPendingCommands = 2000;
 	quint16 m_port = 7502;
 	qulonglong m_totalRequests = 0;
 	qulonglong m_rejectedRequests = 0;

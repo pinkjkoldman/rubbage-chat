@@ -1,4 +1,5 @@
 [network]
+bootstrapUrl=
 host=127.0.0.1
 chatPort=7502
 filePort=7028
@@ -16,6 +17,13 @@ publicMode=false
 registrationEnabled=true
 maxConnections=500
 maxConnectionsPerIp=12
+
+[performance]
+businessWorkers=8
+maxPendingCommands=2000
+
+[storage]
+attachmentRoot=
 
 [development]
 seedDemoAccounts=false
