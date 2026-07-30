@@ -7,12 +7,9 @@ if ($installDirectory -ne $expectedDirectory) {
     throw "Refusing to uninstall a non-standard directory: $installDirectory"
 }
 
-$installedExecutables = @(
-    (Join-Path $installDirectory 'RubbageChat.exe'),
-    (Join-Path $installDirectory 'RubbageChatServer.exe')
-)
-Get-Process RubbageChat, RubbageChatServer -ErrorAction SilentlyContinue |
-    Where-Object { $_.Path -and $installedExecutables -contains $_.Path } |
+$installedExecutable = Join-Path $installDirectory 'RubbageChat.exe'
+Get-Process RubbageChat -ErrorAction SilentlyContinue |
+    Where-Object { $_.Path -and $_.Path -eq $installedExecutable } |
     Stop-Process -Force
 
 $desktopShortcut = Join-Path ([Environment]::GetFolderPath('Desktop')) 'RubbageChat.lnk'

@@ -1,4 +1,16 @@
+param(
+    [string]$ServerHost = '127.0.0.1',
+    [ValidateRange(1, 65535)]
+    [int]$ServerPort = 7502,
+    [switch]$Tls,
+    [switch]$LockNetwork
+)
+
 $ErrorActionPreference = 'Stop'
+
+if ([Uri]::CheckHostName($ServerHost) -eq [UriHostNameType]::Unknown) {
+    throw 'ServerHost must be a valid DNS name or IP address.'
+}
 
 $projectRoot = $PSScriptRoot
 $installerRoot = Join-Path $projectRoot 'installer'
@@ -14,7 +26,6 @@ $setupPath = Join-Path $distributionRoot 'RubbageChatSetup.exe'
 
 foreach ($required in @(
     (Join-Path $deployRoot 'RubbageChat.exe'),
-    (Join-Path $deployRoot 'RubbageChatServer.exe'),
     $sevenZip,
     $iexpress
 )) {
@@ -23,7 +34,7 @@ foreach ($required in @(
     }
 }
 
-foreach ($generatedDirectory in @($buildRoot, $distributionRoot)) {
+foreach ($generatedDirectory in @($buildRoot)) {
     $resolved = [System.IO.Path]::GetFullPath($generatedDirectory)
     if (-not $resolved.StartsWith(
         [System.IO.Path]::GetFullPath($projectRoot) + '\',
@@ -35,10 +46,15 @@ foreach ($generatedDirectory in @($buildRoot, $distributionRoot)) {
     }
     New-Item -ItemType Directory -Path $resolved -Force | Out-Null
 }
+New-Item -ItemType Directory -Path $distributionRoot -Force | Out-Null
+if (Test-Path -LiteralPath $setupPath) {
+    Remove-Item -LiteralPath $setupPath -Force
+}
 
 New-Item -ItemType Directory -Path $payloadRoot, $packageRoot -Force | Out-Null
 
 $excludedNames = @(
+    'RubbageChatServer.exe',
     'RubbageChatProtocolSmokeTest.exe',
     'Qt6Widgets.dll',
     'Qt6Quick3DUtils.dll',
@@ -53,12 +69,23 @@ Get-ChildItem -LiteralPath $deployRoot -Force |
     Where-Object { $excludedNames -notcontains $_.Name } |
     Copy-Item -Destination $payloadRoot -Recurse -Force
 
-Copy-Item -LiteralPath (Join-Path $projectRoot 'Start-RubbageChat.ps1') `
-    -Destination $payloadRoot -Force
-Copy-Item -LiteralPath (Join-Path $projectRoot 'Stop-RubbageChat.ps1') `
-    -Destination $payloadRoot -Force
 Copy-Item -LiteralPath (Join-Path $projectRoot 'Uninstall-RubbageChat.ps1') `
     -Destination $payloadRoot -Force
+
+$tlsValue = if ($Tls) { 'true' } else { 'false' }
+$lockedValue = if ($LockNetwork) { 'true' } else { 'false' }
+$clientConfiguration = @"
+[network]
+host=$ServerHost
+chatPort=$ServerPort
+filePort=7028
+locked=$lockedValue
+
+[security]
+tls=$tlsValue
+"@
+Set-Content -LiteralPath (Join-Path $payloadRoot 'rubbagechat.ini') `
+    -Value $clientConfiguration -Encoding utf8
 
 $archivePath = Join-Path $packageRoot 'RubbageChatPayload.7z'
 & $sevenZip a -t7z -mx=7 $archivePath (Join-Path $payloadRoot '*') | Out-Null

@@ -16,6 +16,7 @@
 #include <QSslServer>
 #include <QTcpSocket>
 #include <QUrl>
+#include <QVariantMap>
 
 namespace
 {
@@ -72,10 +73,105 @@ ChatServer::ChatServer(QObject* parent)
 		this, &ChatServer::heartbeatSweep);
 }
 
-ChatServer::~ChatServer() = default;
+ChatServer::~ChatServer()
+{
+	stopServer();
+}
+
+QString ChatServer::statusText() const
+{
+	return m_running ? QStringLiteral("Running") : QStringLiteral("Stopped");
+}
+
+QString ChatServer::databaseTarget() const
+{
+	const QUrl url(m_mongoUri);
+	const QString host = url.host().isEmpty()
+		? QStringLiteral("configured host") : url.host();
+	const int port = url.port(27017);
+	QString database = m_databaseName;
+	const QString pathDatabase = url.path().mid(1).section('/', 0, 0);
+	if (!pathDatabase.isEmpty())
+		database = pathDatabase;
+	return QStringLiteral("%1:%2/%3").arg(host).arg(port).arg(database);
+}
+
+int ChatServer::authenticatedConnections() const
+{
+	int count = 0;
+	for (const ClientState& client : m_clients) {
+		if (!client.account.isEmpty())
+			++count;
+	}
+	return count;
+}
+
+void ChatServer::appendLog(const QString& level, const QString& message)
+{
+	QVariantMap entry;
+	entry.insert(QStringLiteral("time"),
+		QDateTime::currentDateTime().toString(QStringLiteral("HH:mm:ss")));
+	entry.insert(QStringLiteral("level"), level);
+	entry.insert(QStringLiteral("message"), message);
+	m_recentLogs.prepend(entry);
+	while (m_recentLogs.size() > 100)
+		m_recentLogs.removeLast();
+	emit logsChanged();
+}
+
+void ChatServer::reject(const QString& message)
+{
+	++m_rejectedRequests;
+	appendLog(QStringLiteral("warning"), message);
+	emit metricsChanged();
+}
+
+bool ChatServer::startServer()
+{
+	if (m_running)
+		return true;
+
+	m_lastError.clear();
+	QString error;
+	if (!start(&error)) {
+		m_lastError = error.isEmpty()
+			? QStringLiteral("The server could not be started.") : error;
+		m_tcpServer.reset();
+		m_store.reset();
+		appendLog(QStringLiteral("error"), m_lastError);
+		emit statusChanged();
+		return false;
+	}
+	return true;
+}
+
+void ChatServer::stopServer()
+{
+	const bool wasRunning = m_running;
+	m_heartbeatTimer.stop();
+	if (m_tcpServer)
+		m_tcpServer->close();
+	for (QTcpSocket* socket : m_clients.keys()) {
+		socket->disconnect(this);
+		socket->abort();
+		socket->deleteLater();
+	}
+	m_clients.clear();
+	m_rateBuckets.clear();
+	m_store.reset();
+	m_tcpServer.reset();
+	m_running = false;
+	if (wasRunning) {
+		appendLog(QStringLiteral("info"), QStringLiteral("Server stopped."));
+		emit statusChanged();
+		emit metricsChanged();
+	}
+}
 
 bool ChatServer::start(QString* error)
 {
+	if (m_running)
+		return true;
 	if (m_publicMode && !m_tlsEnabled) {
 		if (error)
 			*error = QStringLiteral("公网模式必须启用 TLS");
@@ -144,6 +240,13 @@ bool ChatServer::start(QString* error)
 		return false;
 	}
 	m_heartbeatTimer.start();
+	m_running = true;
+	appendLog(QStringLiteral("success"),
+		QStringLiteral("Listening on port %1%2.")
+			.arg(m_port)
+			.arg(m_tlsEnabled ? QStringLiteral(" with TLS") : QString()));
+	emit statusChanged();
+	emit metricsChanged();
 	return true;
 }
 
@@ -154,6 +257,7 @@ void ChatServer::acceptConnections()
 		if (m_clients.size() >= m_maxConnections
 			|| connectionsForPeer(peer) >= m_maxConnectionsPerIp
 			|| !allowRate("connect:" + peer, 30, 60000)) {
+			reject(QStringLiteral("Connection rejected from %1.").arg(peer));
 			socket->disconnectFromHost();
 			socket->deleteLater();
 			continue;
@@ -162,6 +266,9 @@ void ChatServer::acceptConnections()
 		state.lastSeen = nowMs();
 		state.rateWindowStart = state.lastSeen;
 		m_clients.insert(socket, state);
+		appendLog(QStringLiteral("info"),
+			QStringLiteral("Client connected from %1.").arg(peer));
+		emit metricsChanged();
 		connect(socket, &QTcpSocket::readyRead, this,
 			[this, socket]() { readClient(socket); });
 		connect(socket, &QTcpSocket::disconnected, this,
@@ -198,8 +305,12 @@ void ChatServer::disconnectClient(QTcpSocket* socket)
 	if (iterator == m_clients.end())
 		return;
 	const QString account = iterator->account;
+	const QString peer = peerKey(socket);
 	m_clients.erase(iterator);
 	socket->deleteLater();
+	appendLog(QStringLiteral("info"),
+		QStringLiteral("Client disconnected from %1.").arg(peer));
+	emit metricsChanged();
 	if (account.isEmpty())
 		return;
 	bool stillOnline = false;
@@ -270,6 +381,8 @@ void ChatServer::handlePacket(QTcpSocket* socket, const QJsonObject& packet)
 	auto iterator = m_clients.find(socket);
 	if (iterator == m_clients.end())
 		return;
+	++m_totalRequests;
+	emit metricsChanged();
 	const QString peer = peerKey(socket);
 	if (!allowRequest(*iterator)
 		|| !allowRate("request:" + peer, 120, 10000)) {
@@ -312,6 +425,10 @@ void ChatServer::handlePacket(QTcpSocket* socket, const QJsonObject& packet)
 				data.value("password").toString());
 			iterator->account = result.value("account").toString();
 			iterator->token = result.value("token").toString();
+			appendLog(QStringLiteral("success"),
+				QStringLiteral("Account %1 authenticated.")
+					.arg(iterator->account));
+			emit metricsChanged();
 			QJsonObject snapshot = result.value("snapshot").toObject();
 			overlayPresence(snapshot);
 			result.insert("snapshot", snapshot);
@@ -334,11 +451,13 @@ void ChatServer::handlePacket(QTcpSocket* socket, const QJsonObject& packet)
 		}
 		iterator->account = account;
 		iterator->token = token;
+		emit metricsChanged();
 
 		if (action == "logout") {
 			m_store->logout(token);
 			iterator->account.clear();
 			iterator->token.clear();
+			emit metricsChanged();
 			sendResponse(socket, packet);
 		}
 		else if (action == "snapshot") {
@@ -442,6 +561,7 @@ void ChatServer::handlePacket(QTcpSocket* socket, const QJsonObject& packet)
 				data.value("newPassword").toString());
 			iterator->account.clear();
 			iterator->token.clear();
+			emit metricsChanged();
 			sendResponse(socket, packet, {{"reauthenticate", true}});
 		}
 		else {
@@ -469,6 +589,7 @@ void ChatServer::sendResponse(QTcpSocket* socket,
 void ChatServer::sendError(QTcpSocket* socket,
 	const QJsonObject& request, const QString& message)
 {
+	reject(message);
 	socket->write(ChatProtocol::encode({
 		{"version", ChatProtocol::Version},
 		{"kind", "response"},

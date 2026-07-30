@@ -1,0 +1,5 @@
+<RCC>
+    <qresource prefix="/">
+        <file alias="ui/ServerDashboard.qml">ui/ServerDashboard.qml</file>
+    </qresource>
+</RCC>

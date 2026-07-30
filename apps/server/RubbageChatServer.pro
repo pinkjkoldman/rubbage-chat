@@ -1,9 +1,9 @@
-QT += core network
+QT += core gui network qml quick quickcontrols2
 
 TEMPLATE = app
 TARGET = RubbageChatServer
-CONFIG += console c++17 release
-CONFIG -= app_bundle debug_and_release debug
+CONFIG += c++17 release
+CONFIG -= debug_and_release debug
 
 SERVER_ROOT = $$PWD
 PROJECT_ROOT = $$clean_path($$PWD/../..)
@@ -33,6 +33,8 @@ HEADERS += \
     storage/MongoChatStore.h \
     $$PROJECT_ROOT/libs/protocol/ChatProtocol.h
 
+RESOURCES += resources.qrc
+
 LIBS += \
     -L$$MONGO_CXX/lib \
     -lmongocxx1-static \
@@ -40,3 +42,7 @@ LIBS += \
     $$MONGO_C/lib/libmongoc2.a \
     $$MONGO_C/lib/libbson2.a \
     -lsecur32 -lcrypt32 -lbcrypt -lncrypt -lws2_32
+
+win32 {
+    CONFIG += windows
+}

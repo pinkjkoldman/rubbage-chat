@@ -1,38 +1,35 @@
 # RubbageChat
 
-RubbageChat 是一个使用 Qt 6、QML、Qt Network 和 MongoDB 实现的桌面即时通信软件。服务端负责身份、好友关系、会话、消息和附件的最终状态，客户端只保存界面与连接设置。
+RubbageChat 是一个基于 Qt 6、QML、Qt Network 与 MongoDB 的桌面即时通信产品，包含可安装的 Windows 客户端、可视化服务端控制台、无界面服务器模式和公网测试发布脚本。
 
-## 功能
+## 产品能力
 
-- 注册、登录、退出和切换账号
+- 注册、登录、退出和账号切换
 - 好友搜索、申请、接受、拒绝和删除
-- 实时消息、离线历史、未读状态和会话选项
-- 会话/消息全文检索、独立会话草稿和消息快捷复制
-- 基于系统字体、4/8 px 网格和统一 12/24 px 圆角的简洁界面
-- 可滚动的分区设置中心、分类快捷定位与即时状态反馈
-- 文件上传、授权下载和 SHA-256 校验
-- 个人资料、密码修改和会话失效
-- PBKDF2-HMAC-SHA256 密码存储
-- Token 会话认证、请求限流、心跳和可选 TLS
-- 公网模式启动校验、跨重连限流和锁定式生产客户端配置
-- 本机 MongoDB 持久化
-- Windows 安装包
+- 实时消息、离线历史、未读状态与会话选项
+- 会话/消息全文搜索、独立草稿和快捷复制
+- 文件上传、授权下载与 SHA-256 校验
+- 个人资料、密码修改与会话失效
+- PBKDF2-HMAC-SHA256 密码存储与 Token 会话认证
+- 请求限流、连接限制、心跳、TLS 1.2+ 与公网模式启动校验
+- 可视化服务端：服务启停、连接数、认证数、请求统计、安全配置和活动日志
+- Windows 客户端安装器、桌面快捷方式、开始菜单入口与标准卸载项
 
 ## 目录
 
 ```text
 apps/
   client/              QML 客户端与应用控制模块
-  server/              TCP 会话模块与 MongoDB 持久化模块
+  server/              可视化服务端与 MongoDB 持久化模块
 libs/
   protocol/            客户端和服务端共享的帧协议
 tests/
   protocol/            跨网络接口的端到端协议测试
-installer/             Windows 安装脚本
+installer/             Windows 客户端安装脚本
 third_party/           MongoDB C/C++ 静态驱动
 ```
 
-详细设计见 [ARCHITECTURE.md](ARCHITECTURE.md)，部署方法见 [RUBBAGECHAT_DEPLOYMENT.md](RUBBAGECHAT_DEPLOYMENT.md)。
+详细设计见 [ARCHITECTURE.md](ARCHITECTURE.md)，公网部署见 [PUBLIC_TEST_DEPLOYMENT.md](PUBLIC_TEST_DEPLOYMENT.md)。
 
 ## 构建
 
@@ -44,36 +41,67 @@ third_party/           MongoDB C/C++ 静态驱动
 
 ```powershell
 .\Build-RubbageChat.ps1
+```
+
+构建结果位于 `deploy`。
+
+## 启动
+
+双击 `deploy\RubbageChatServer.exe` 打开可视化服务端控制台。用于 Windows Server 或进程管理器部署时，可使用无界面模式：
+
+```powershell
+.\deploy\RubbageChatServer.exe --headless
+```
+
+客户端：
+
+```powershell
+.\deploy\RubbageChat.exe
+```
+
+本机开发环境也可以继续使用：
+
+```powershell
 .\Start-RubbageChat.ps1
 ```
 
-所有可运行文件生成在 `deploy`。协议测试必须从该目录运行：
+## 客户端安装包
 
-```powershell
-.\deploy\RubbageChatProtocolSmokeTest.exe
-```
-
-生成安装包：
+生成默认本机连接配置的安装包：
 
 ```powershell
 .\Build-Installer.ps1
 ```
 
-输出文件为 `dist\RubbageChatSetup.exe`。
+生成连接公网测试服务器、启用 TLS 并锁定网络设置的安装包：
 
-生成隔离的公网测试客户端包和服务端包：
+```powershell
+.\Build-Installer.ps1 -ServerHost chat.example.com -Tls -LockNetwork
+```
+
+输出文件为 `dist\RubbageChatSetup.exe`。安装器只包含客户端，不携带服务端、MongoDB 配置或测试程序。
+
+## 公网测试包
+
+生成相互隔离的客户端和服务端目录：
 
 ```powershell
 .\Build-PublicTest.ps1 -ServerHost chat.example.com
 ```
 
-完整步骤见 [PUBLIC_TEST_DEPLOYMENT.md](PUBLIC_TEST_DEPLOYMENT.md)。
+输出位于 `dist\public-test`。部署前必须配置 MongoDB 认证 URI、域名证书、防火墙与反向代理/负载均衡策略，完整步骤见 [PUBLIC_TEST_DEPLOYMENT.md](PUBLIC_TEST_DEPLOYMENT.md)。
 
-## 演示账号
+## 验证
 
-新数据库首次启动时创建：
+服务端启动后运行：
+
+```powershell
+.\deploy\RubbageChatProtocolSmokeTest.exe
+```
+
+开发环境可通过 `development/seedDemoAccounts=true` 创建演示账号：
 
 - `100000001` / `rubbagechat`
 - `100000002` / `rubbagechat`
 
-生产部署前应修改或删除演示账号。
+公网模式禁止创建演示账号。
