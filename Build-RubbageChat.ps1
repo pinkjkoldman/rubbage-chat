@@ -18,6 +18,17 @@ foreach ($tool in @($qmake, $make, $windeployqt)) {
 $env:PATH = (Join-Path $toolchainRoot 'bin') + ';' +
     (Join-Path $qtRoot 'bin') + ';' + $env:PATH
 
+$opensslCandidates = @()
+if ($env:RUBBAGECHAT_OPENSSL_ROOT) {
+    $opensslCandidates += $env:RUBBAGECHAT_OPENSSL_ROOT
+}
+$opensslCandidates += 'C:\Program Files\Git\mingw64'
+$opensslRoot = $opensslCandidates |
+    Where-Object {
+        Test-Path -LiteralPath (Join-Path $_ 'bin\libssl-3-x64.dll')
+    } |
+    Select-Object -First 1
+
 $targets = @(
     @{
         Name = 'client'
@@ -77,11 +88,17 @@ foreach ($source in $deployExecutables.Keys) {
     Copy-Item -LiteralPath $source -Destination (Join-Path $deployRoot $deployExecutables[$source]) -Force
 }
 
-& $windeployqt `
-    --qmldir (Join-Path $projectRoot 'apps\client\ui') `
-    --compiler-runtime `
-    --no-translations `
-    (Join-Path $deployRoot 'RubbageChat.exe')
+$deploymentArguments = @(
+    '--qmldir', (Join-Path $projectRoot 'apps\client\ui'),
+    '--compiler-runtime',
+    '--no-translations'
+)
+if ($opensslRoot) {
+    $deploymentArguments += @(
+        '--openssl-root', $opensslRoot
+    )
+}
+& $windeployqt @deploymentArguments (Join-Path $deployRoot 'RubbageChat.exe')
 if ($LASTEXITCODE -ne 0) {
     throw 'windeployqt deployment failed'
 }

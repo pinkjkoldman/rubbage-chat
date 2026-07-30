@@ -13,6 +13,7 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QMimeDatabase>
+#include <QRandomGenerator>
 #include <QRegularExpression>
 #include <QStandardPaths>
 #include <QStyleHints>
@@ -40,24 +41,38 @@ ChatController::ChatController(QObject* parent)
 {
 	QSettings runtimeConfig(QCoreApplication::applicationDirPath() + "/rubbagechat.ini",
 		QSettings::IniFormat);
+	m_networkLocked = qEnvironmentVariable("RUBBAGECHAT_NETWORK_LOCKED",
+		runtimeConfig.value("network/locked", false).toString())
+		.trimmed().toLower() == "true";
 	m_serverHost = qEnvironmentVariable("RUBBAGECHAT_SERVER_HOST",
-		m_settings.value("network/host",
-			runtimeConfig.value("network/host", "127.0.0.1")).toString()).trimmed();
+		(m_networkLocked
+			? runtimeConfig.value("network/host", "127.0.0.1")
+			: m_settings.value("network/host",
+				runtimeConfig.value("network/host", "127.0.0.1")))
+			.toString()).trimmed();
 	bool chatPortOk = false;
 	bool filePortOk = false;
 	const int chatPort = qEnvironmentVariable("RUBBAGECHAT_CHAT_PORT",
-		m_settings.value("network/chatPort",
-			runtimeConfig.value("network/chatPort", 7502)).toString()).toInt(&chatPortOk);
+		(m_networkLocked
+			? runtimeConfig.value("network/chatPort", 7502)
+			: m_settings.value("network/chatPort",
+				runtimeConfig.value("network/chatPort", 7502)))
+			.toString()).toInt(&chatPortOk);
 	const int filePort = qEnvironmentVariable("RUBBAGECHAT_FILE_PORT",
-		m_settings.value("network/filePort",
-			runtimeConfig.value("network/filePort", 7028)).toString()).toInt(&filePortOk);
+		(m_networkLocked
+			? runtimeConfig.value("network/filePort", 7028)
+			: m_settings.value("network/filePort",
+				runtimeConfig.value("network/filePort", 7028)))
+			.toString()).toInt(&filePortOk);
 	m_chatPort = chatPortOk && chatPort > 0 && chatPort <= 65535 ? chatPort : 7502;
 	m_filePort = filePortOk && filePort > 0 && filePort <= 65535 ? filePort : 7028;
 	if (m_serverHost.isEmpty())
 		m_serverHost = "127.0.0.1";
 	m_tlsEnabled = qEnvironmentVariable("RUBBAGECHAT_TLS",
-		m_settings.value("network/tls",
-			runtimeConfig.value("security/tls", false)).toString())
+		(m_networkLocked
+			? runtimeConfig.value("security/tls", false)
+			: m_settings.value("network/tls",
+				runtimeConfig.value("security/tls", false))).toString())
 		.trimmed().toLower() == "true";
 
 	m_theme = normalizedTheme(m_settings.value("appearance/theme", "system").toString());
@@ -66,7 +81,6 @@ ChatController::ChatController(QObject* parent)
 	m_showOnlineStatus = m_settings.value("privacy/showOnlineStatus", true).toBool();
 	m_compactMode = m_settings.value("appearance/compactMode", false).toBool();
 
-	m_reconnectTimer.setInterval(3000);
 	m_reconnectTimer.setSingleShot(true);
 	connect(&m_reconnectTimer, &QTimer::timeout,
 		this, &ChatController::connectToServer);
@@ -90,6 +104,8 @@ ChatController::ChatController(QObject* parent)
 	});
 	connect(&m_socket, &QSslSocket::sslErrors, this,
 		[this](const QList<QSslError>& errors) {
+			m_tlsBlocked = true;
+			m_reconnectTimer.stop();
 			QStringList messages;
 			for (const QSslError& error : errors)
 				messages.append(error.errorString());
@@ -101,13 +117,12 @@ ChatController::ChatController(QObject* parent)
 		this, &ChatController::processIncomingData);
 	connect(&m_socket, &QTcpSocket::disconnected, this, [this]() {
 		setConnected(false);
-		m_reconnectTimer.start();
+		scheduleReconnect();
 	});
 	connect(&m_socket, &QTcpSocket::errorOccurred, this,
 		[this](QAbstractSocket::SocketError) {
 			setConnected(false);
-			if (!m_reconnectTimer.isActive())
-				m_reconnectTimer.start();
+			scheduleReconnect();
 		});
 
 	m_pingTimer.setInterval(25000);
@@ -130,6 +145,8 @@ ChatController::~ChatController()
 
 void ChatController::connectToServer()
 {
+	if (m_tlsBlocked)
+		return;
 	if (m_socket.state() == QAbstractSocket::ConnectedState
 		|| m_socket.state() == QAbstractSocket::ConnectingState)
 		return;
@@ -140,8 +157,24 @@ void ChatController::connectToServer()
 		m_socket.connectToHost(m_serverHost, quint16(m_chatPort));
 }
 
+void ChatController::scheduleReconnect()
+{
+	if (m_tlsBlocked || m_reconnectTimer.isActive())
+		return;
+	const int exponent = qMin(m_reconnectAttempts, 5);
+	const int baseDelay = qMin(30000, 1000 * (1 << exponent));
+	const int jitter = QRandomGenerator::global()->bounded(501);
+	m_reconnectTimer.setInterval(baseDelay + jitter);
+	++m_reconnectAttempts;
+	m_reconnectTimer.start();
+}
+
 void ChatController::setConnected(bool value)
 {
+	if (value) {
+		m_reconnectAttempts = 0;
+		m_reconnectTimer.stop();
+	}
 	if (m_connected == value)
 		return;
 	m_connected = value;
@@ -785,6 +818,10 @@ void ChatController::setCompactMode(bool value)
 void ChatController::applyNetworkSettings(
 	const QString& host, int chatPort, int filePort)
 {
+	if (m_networkLocked) {
+		showToast(QStringLiteral("此版本由管理员锁定服务器配置"), true);
+		return;
+	}
 	const QString cleanHost = host.trimmed();
 	if (cleanHost.isEmpty() || chatPort <= 0 || chatPort > 65535
 		|| filePort <= 0 || filePort > 65535) {
@@ -798,6 +835,9 @@ void ChatController::applyNetworkSettings(
 	saveSetting("network/chatPort", m_chatPort);
 	saveSetting("network/filePort", m_filePort);
 	emit networkSettingsChanged();
+	m_tlsBlocked = false;
+	m_reconnectAttempts = 0;
+	m_reconnectTimer.stop();
 	m_socket.abort();
 	setConnected(false);
 	connectToServer();

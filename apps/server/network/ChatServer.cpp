@@ -15,6 +15,7 @@
 #include <QSslKey>
 #include <QSslServer>
 #include <QTcpSocket>
+#include <QUrl>
 
 namespace
 {
@@ -47,6 +48,19 @@ ChatServer::ChatServer(QObject* parent)
 		config.value("security/certificateFile").toString());
 	m_privateKeyFile = qEnvironmentVariable("RUBBAGECHAT_TLS_KEY",
 		config.value("security/privateKeyFile").toString());
+	m_publicMode = qEnvironmentVariable("RUBBAGECHAT_PUBLIC_MODE",
+		config.value("security/publicMode", false).toString())
+		.trimmed().toLower() == "true";
+	m_seedDemoAccounts = qEnvironmentVariable("RUBBAGECHAT_SEED_DEMO_ACCOUNTS",
+		config.value("development/seedDemoAccounts", false).toString())
+		.trimmed().toLower() == "true";
+	m_registrationEnabled = qEnvironmentVariable("RUBBAGECHAT_REGISTRATION_ENABLED",
+		config.value("security/registrationEnabled", true).toString())
+		.trimmed().toLower() == "true";
+	m_maxConnections = qBound(20,
+		config.value("security/maxConnections", 500).toInt(), 10000);
+	m_maxConnectionsPerIp = qBound(2,
+		config.value("security/maxConnectionsPerIp", 12).toInt(), 200);
 	bool portOk = false;
 	const int port = qEnvironmentVariable("RUBBAGECHAT_CHAT_PORT",
 		config.value("network/chatPort", 7502).toString()).toInt(&portOk);
@@ -62,6 +76,23 @@ ChatServer::~ChatServer() = default;
 
 bool ChatServer::start(QString* error)
 {
+	if (m_publicMode && !m_tlsEnabled) {
+		if (error)
+			*error = QStringLiteral("公网模式必须启用 TLS");
+		return false;
+	}
+	if (m_publicMode && m_seedDemoAccounts) {
+		if (error)
+			*error = QStringLiteral("公网模式禁止创建演示账号");
+		return false;
+	}
+	const QUrl mongoUrl(m_mongoUri);
+	if (m_publicMode && mongoUrl.userName().isEmpty()) {
+		if (error)
+			*error = QStringLiteral("公网模式必须使用带身份认证的 MongoDB URI");
+		return false;
+	}
+
 	try {
 		m_store = std::make_unique<MongoChatStore>(m_mongoUri, m_databaseName);
 	}
@@ -70,7 +101,7 @@ bool ChatServer::start(QString* error)
 			*error = exceptionMessage(exception);
 		return false;
 	}
-	if (!m_store->initialize(error))
+	if (!m_store->initialize(m_seedDemoAccounts, m_publicMode, error))
 		return false;
 
 	if (m_tlsEnabled) {
@@ -82,16 +113,19 @@ bool ChatServer::start(QString* error)
 				*error = QStringLiteral("TLS 证书或私钥无法读取");
 			return false;
 		}
-		const QSslCertificate certificate(
-			certificateFile.readAll(), QSsl::Pem);
-		QSslKey privateKey(keyFile.readAll(), QSsl::Rsa, QSsl::Pem);
-		if (certificate.isNull() || privateKey.isNull()) {
+		const QList<QSslCertificate> certificateChain =
+			QSslCertificate::fromData(certificateFile.readAll(), QSsl::Pem);
+		const QByteArray privateKeyData = keyFile.readAll();
+		QSslKey privateKey(privateKeyData, QSsl::Rsa, QSsl::Pem);
+		if (privateKey.isNull())
+			privateKey = QSslKey(privateKeyData, QSsl::Ec, QSsl::Pem);
+		if (certificateChain.isEmpty() || privateKey.isNull()) {
 			if (error)
-				*error = QStringLiteral("TLS 证书或 RSA 私钥格式无效");
+				*error = QStringLiteral("TLS 证书链或 RSA/ECDSA 私钥格式无效");
 			return false;
 		}
 		QSslConfiguration ssl = QSslConfiguration::defaultConfiguration();
-		ssl.setLocalCertificate(certificate);
+		ssl.setLocalCertificateChain(certificateChain);
 		ssl.setPrivateKey(privateKey);
 		ssl.setProtocol(QSsl::TlsV1_2OrLater);
 		auto server = std::make_unique<QSslServer>();
@@ -116,6 +150,14 @@ bool ChatServer::start(QString* error)
 void ChatServer::acceptConnections()
 {
 	while (QTcpSocket* socket = m_tcpServer->nextPendingConnection()) {
+		const QString peer = peerKey(socket);
+		if (m_clients.size() >= m_maxConnections
+			|| connectionsForPeer(peer) >= m_maxConnectionsPerIp
+			|| !allowRate("connect:" + peer, 30, 60000)) {
+			socket->disconnectFromHost();
+			socket->deleteLater();
+			continue;
+		}
 		ClientState state;
 		state.lastSeen = nowMs();
 		state.rateWindowStart = state.lastSeen;
@@ -179,12 +221,58 @@ bool ChatServer::allowRequest(ClientState& state)
 	return ++state.requestsInWindow <= 80;
 }
 
+bool ChatServer::allowRate(
+	const QString& key, int limit, qint64 windowMs)
+{
+	const qint64 now = nowMs();
+	RateBucket& bucket = m_rateBuckets[key];
+	if (bucket.windowStart == 0 || now - bucket.windowStart >= windowMs) {
+		bucket.windowStart = now;
+		bucket.count = 0;
+	}
+	return ++bucket.count <= limit;
+}
+
+QString ChatServer::peerKey(const QTcpSocket* socket) const
+{
+	if (!socket)
+		return QStringLiteral("unknown");
+	bool ipv4Ok = false;
+	const quint32 ipv4 = socket->peerAddress().toIPv4Address(&ipv4Ok);
+	return ipv4Ok ? QHostAddress(ipv4).toString()
+		: socket->peerAddress().toString();
+}
+
+int ChatServer::connectionsForPeer(const QString& peer) const
+{
+	int count = 0;
+	for (QTcpSocket* socket : m_clients.keys()) {
+		if (peerKey(socket) == peer)
+			++count;
+	}
+	return count;
+}
+
+void ChatServer::pruneRateBuckets()
+{
+	const qint64 staleBefore = nowMs() - 60LL * 60 * 1000;
+	for (auto iterator = m_rateBuckets.begin();
+		iterator != m_rateBuckets.end();) {
+		if (iterator->windowStart < staleBefore)
+			iterator = m_rateBuckets.erase(iterator);
+		else
+			++iterator;
+	}
+}
+
 void ChatServer::handlePacket(QTcpSocket* socket, const QJsonObject& packet)
 {
 	auto iterator = m_clients.find(socket);
 	if (iterator == m_clients.end())
 		return;
-	if (!allowRequest(*iterator)) {
+	const QString peer = peerKey(socket);
+	if (!allowRequest(*iterator)
+		|| !allowRate("request:" + peer, 120, 10000)) {
 		sendError(socket, packet, QStringLiteral("请求过于频繁，请稍后重试"));
 		return;
 	}
@@ -198,13 +286,29 @@ void ChatServer::handlePacket(QTcpSocket* socket, const QJsonObject& packet)
 	const QJsonObject data = packet.value("data").toObject();
 	try {
 		if (action == "register") {
+			if (!m_registrationEnabled) {
+				sendError(socket, packet, QStringLiteral("当前未开放新账号注册"));
+				return;
+			}
+			if (!allowRate("register:" + peer, 5, 60LL * 60 * 1000)) {
+				sendError(socket, packet, QStringLiteral("注册尝试过于频繁，请稍后重试"));
+				return;
+			}
 			sendResponse(socket, packet, m_store->registerUser(
 				data.value("name").toString(), data.value("password").toString()));
 			return;
 		}
 		if (action == "login") {
+			const QString requestedAccount =
+				data.value("account").toString().trimmed();
+			if (!allowRate("login-ip:" + peer, 12, 60000)
+				|| !allowRate("login-account:" + requestedAccount,
+					8, 5LL * 60 * 1000)) {
+				sendError(socket, packet, QStringLiteral("登录尝试过于频繁，请稍后重试"));
+				return;
+			}
 			QJsonObject result = m_store->login(
-				data.value("account").toString().trimmed(),
+				requestedAccount,
 				data.value("password").toString());
 			iterator->account = result.value("account").toString();
 			iterator->token = result.value("token").toString();
@@ -423,6 +527,7 @@ void ChatServer::overlayPresence(QJsonObject& snapshot) const
 
 void ChatServer::heartbeatSweep()
 {
+	pruneRateBuckets();
 	const qint64 staleBefore = nowMs() - 90000;
 	for (QTcpSocket* socket : m_clients.keys()) {
 		if (m_clients.value(socket).lastSeen < staleBefore)

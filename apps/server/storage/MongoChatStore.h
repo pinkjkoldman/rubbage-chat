@@ -12,7 +12,7 @@ public:
 	explicit MongoChatStore(const QString& uri, const QString& databaseName);
 	~MongoChatStore();
 
-	bool initialize(QString* error);
+	bool initialize(bool seedDemoAccounts, bool publicMode, QString* error);
 	QJsonObject registerUser(const QString& name, const QString& password);
 	QJsonObject login(const QString& account, const QString& password);
 	QString authenticate(const QString& token);

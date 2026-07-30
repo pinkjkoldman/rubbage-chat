@@ -182,7 +182,8 @@ MongoChatStore::MongoChatStore(const QString& uri, const QString& databaseName)
 
 MongoChatStore::~MongoChatStore() = default;
 
-bool MongoChatStore::initialize(QString* error)
+bool MongoChatStore::initialize(
+	bool seedDemoAccounts, bool publicMode, QString* error)
 {
 	try {
 		d->database.run_command(make_document(kvp("ping", 1)));
@@ -192,6 +193,8 @@ bool MongoChatStore::initialize(QString* error)
 			make_document(kvp("account", 1)), unique);
 		d->database["sessions"].create_index(
 			make_document(kvp("tokenHash", 1)), unique);
+		d->database["sessions"].create_index(
+			make_document(kvp("expiresAt", 1)));
 		d->database["friendships"].create_index(
 			make_document(kvp("a", 1), kvp("b", 1)), unique);
 		d->database["friend_requests"].create_index(
@@ -203,14 +206,21 @@ bool MongoChatStore::initialize(QString* error)
 		d->database["conversation_options"].create_index(
 			make_document(kvp("owner", 1), kvp("peer", 1)), unique);
 
-		if (d->findUser("100000001").isEmpty())
-			d->createUser("100000001", "演示账号 Alpha", "rubbagechat");
-		else
-			d->setPassword("100000001", "rubbagechat");
-		if (d->findUser("100000002").isEmpty())
-			d->createUser("100000002", "演示账号 Beta", "rubbagechat");
-		else
-			d->setPassword("100000002", "rubbagechat");
+		d->database["sessions"].delete_many(make_document(
+			kvp("expiresAt", make_document(kvp("$lte", nowMs())))));
+		if (publicMode && (!d->findUser("100000001").isEmpty()
+			|| !d->findUser("100000002").isEmpty())) {
+			if (error)
+				*error = QStringLiteral(
+					"公网数据库仍包含公开演示账号，请先删除或迁移");
+			return false;
+		}
+		if (seedDemoAccounts) {
+			if (d->findUser("100000001").isEmpty())
+				d->createUser("100000001", "演示账号 Alpha", "rubbagechat");
+			if (d->findUser("100000002").isEmpty())
+				d->createUser("100000002", "演示账号 Beta", "rubbagechat");
+		}
 		return true;
 	}
 	catch (const std::exception& exception) {
@@ -249,6 +259,8 @@ QJsonObject MongoChatStore::login(const QString& account, const QString& passwor
 	const QJsonObject user = d->findUser(account);
 	if (user.isEmpty() || !d->passwordMatches(user, password))
 		fail(QStringLiteral("账号或密码不正确"));
+	d->database["sessions"].delete_many(make_document(
+		kvp("expiresAt", make_document(kvp("$lte", nowMs())))));
 	const QString token = QString::fromLatin1(randomBytes(32).toHex());
 	d->database["sessions"].insert_one(make_document(
 		kvp("tokenHash", tokenHash(token).toStdString()),

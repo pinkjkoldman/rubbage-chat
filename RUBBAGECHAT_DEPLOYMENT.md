@@ -37,6 +37,7 @@ cd D:\gptwork\RubbageChat
 host=127.0.0.1
 chatPort=7502
 filePort=7028
+locked=false
 
 [database]
 mongoUri=mongodb://127.0.0.1:27017/?serverSelectionTimeoutMS=3000
@@ -46,16 +47,24 @@ name=rubbagechat
 tls=false
 certificateFile=
 privateKeyFile=
+publicMode=false
+registrationEnabled=true
+maxConnections=500
+maxConnectionsPerIp=12
+
+[development]
+seedDemoAccounts=false
 ```
 
 当前统一协议只使用 TCP `7502`；`filePort` 为旧配置兼容项。附件随鉴权消息上传，限制为 6 MB，并在 MongoDB `attachments` 集合保存内容、摘要和元数据。
 
-内置测试账号：
+仅在 `development/seedDemoAccounts=true` 时创建测试账号：
 
 - `100000001` / `rubbagechat`
 - `100000002` / `rubbagechat`
 
-首次启动时服务端会创建这些账号。正式环境应删除或修改演示账号。
+服务端不再重置已有测试账号密码。公网模式禁止创建测试账号，并会在数据库仍
+存在公开演示账号时拒绝启动。
 
 ## 数据集合
 
@@ -83,6 +92,14 @@ flowchart LR
 局域网测试时，在服务端电脑的防火墙中仅放行 TCP `7502`，客户端在“设置 → 网络”填写服务端局域网 IP。
 
 ## 公网部署
+
+推荐使用独立的客户端与服务端配置生成测试包：
+
+```powershell
+.\Build-PublicTest.ps1 -ServerHost chat.example.com
+```
+
+详细步骤见 [PUBLIC_TEST_DEPLOYMENT.md](PUBLIC_TEST_DEPLOYMENT.md)。
 
 1. 在云主机安装 MongoDB，让它只监听 `127.0.0.1`，不要暴露 `27017`。
 2. 上传 `deploy\RubbageChatServer.exe` 及同目录的 Qt/MinGW 运行库。

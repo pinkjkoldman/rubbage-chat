@@ -2,6 +2,7 @@
 host=127.0.0.1
 chatPort=7502
 filePort=7028
+locked=false
 
 [database]
 mongoUri=mongodb://127.0.0.1:27017/?serverSelectionTimeoutMS=3000
@@ -11,3 +12,10 @@ name=rubbagechat
 tls=false
 certificateFile=
 privateKeyFile=
+publicMode=false
+registrationEnabled=true
+maxConnections=500
+maxConnectionsPerIp=12
+
+[development]
+seedDemoAccounts=false

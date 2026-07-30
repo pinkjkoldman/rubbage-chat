@@ -14,6 +14,7 @@ RubbageChat 是一个使用 Qt 6、QML、Qt Network 和 MongoDB 实现的桌面�
 - 个人资料、密码修改和会话失效
 - PBKDF2-HMAC-SHA256 密码存储
 - Token 会话认证、请求限流、心跳和可选 TLS
+- 公网模式启动校验、跨重连限流和锁定式生产客户端配置
 - 本机 MongoDB 持久化
 - Windows 安装包
 
@@ -59,6 +60,14 @@ third_party/           MongoDB C/C++ 静态驱动
 ```
 
 输出文件为 `dist\RubbageChatSetup.exe`。
+
+生成隔离的公网测试客户端包和服务端包：
+
+```powershell
+.\Build-PublicTest.ps1 -ServerHost chat.example.com
+```
+
+完整步骤见 [PUBLIC_TEST_DEPLOYMENT.md](PUBLIC_TEST_DEPLOYMENT.md)。
 
 ## 演示账号
 

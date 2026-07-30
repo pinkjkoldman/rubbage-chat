@@ -1,0 +1,8 @@
+[network]
+host=chat.example.com
+chatPort=7502
+filePort=7028
+locked=true
+
+[security]
+tls=true

@@ -42,6 +42,8 @@ class ChatController final : public QObject
 	Q_PROPERTY(QString serverHost READ serverHost NOTIFY networkSettingsChanged)
 	Q_PROPERTY(int chatPort READ chatPort NOTIFY networkSettingsChanged)
 	Q_PROPERTY(int filePort READ filePort NOTIFY networkSettingsChanged)
+	Q_PROPERTY(bool tlsEnabled READ tlsEnabled NOTIFY networkSettingsChanged)
+	Q_PROPERTY(bool networkLocked READ networkLocked NOTIFY networkSettingsChanged)
 
 public:
 	explicit ChatController(QObject* parent = nullptr);
@@ -76,6 +78,8 @@ public:
 	QString serverHost() const { return m_serverHost; }
 	int chatPort() const { return m_chatPort; }
 	int filePort() const { return m_filePort; }
+	bool tlsEnabled() const { return m_tlsEnabled; }
+	bool networkLocked() const { return m_networkLocked; }
 
 	Q_INVOKABLE void login(const QString& account, const QString& password);
 	Q_INVOKABLE void registerAccount(const QString& name, const QString& password, const QString& confirmation);
@@ -125,6 +129,7 @@ signals:
 
 private:
 	void connectToServer();
+	void scheduleReconnect();
 	void setConnected(bool value);
 	QString sendRequest(const QString& action, const QJsonObject& data = {},
 		bool authenticated = true);
@@ -150,6 +155,8 @@ private:
 	QString m_token;
 	bool m_authenticated = false;
 	bool m_connected = false;
+	int m_reconnectAttempts = 0;
+	bool m_tlsBlocked = false;
 	QString m_currentUserAccount;
 	QString m_currentUserName;
 	QString m_currentUserSignature;
@@ -174,6 +181,7 @@ private:
 	QString m_fileTransferLabel;
 	QString m_serverHost = "127.0.0.1";
 	bool m_tlsEnabled = false;
+	bool m_networkLocked = false;
 	int m_chatPort = 7502;
 	int m_filePort = 7028;
 };

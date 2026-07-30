@@ -16,7 +16,7 @@ int main(int argc, char* argv[])
 	QGuiApplication application(argc, argv);
 	QCoreApplication::setOrganizationName("RubbageChat");
 	QCoreApplication::setApplicationName("RubbageChat");
-	QCoreApplication::setApplicationVersion("2.3");
+	QCoreApplication::setApplicationVersion("2.4.0-beta.1");
 
 	QQuickStyle::setStyle("Basic");
 	QFont interfaceFont = application.font();

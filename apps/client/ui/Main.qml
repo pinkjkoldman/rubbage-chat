@@ -2100,6 +2100,7 @@ ApplicationWindow {
                                     Layout.fillWidth: true
                                     placeholderText: "服务器地址，例如 100.64.0.10"
                                     text: appController.serverHost
+                                    enabled: !appController.networkLocked
                                 }
                                 AppTextField {
                                     id: chatPortField
@@ -2107,13 +2108,16 @@ ApplicationWindow {
                                     placeholderText: "消息端口"
                                     inputMethodHints: Qt.ImhDigitsOnly
                                     text: appController.chatPort.toString()
+                                    enabled: !appController.networkLocked
                                 }
                                 AppTextField {
                                     id: filePortField
                                     Layout.preferredWidth: 112
-                                    placeholderText: "文件端口"
+                                    placeholderText: "兼容端口"
                                     inputMethodHints: Qt.ImhDigitsOnly
                                     text: appController.filePort.toString()
+                                    enabled: !appController.networkLocked
+                                    visible: !appController.networkLocked
                                 }
                             }
                             RowLayout {
@@ -2121,8 +2125,9 @@ ApplicationWindow {
                                 Text {
                                     Layout.fillWidth: true
                                     text: appController.connected
-                                        ? "已连接 " + appController.serverHost + ":" + appController.chatPort
-                                        : "未连接；保存后会立即重连"
+                                        ? (appController.tlsEnabled ? "TLS 安全连接 · " : "已连接 · ")
+                                            + appController.serverHost + ":" + appController.chatPort
+                                        : "未连接，客户端会自动退避重试"
                                     color: appController.connected ? root.good : root.textMuted
                                     font.pixelSize: 11
                                     font.weight: root.bodyWeight
@@ -2130,6 +2135,7 @@ ApplicationWindow {
                                 PrimaryButton {
                                     Layout.preferredWidth: 112
                                     text: "保存并重连"
+                                    visible: !appController.networkLocked
                                     onClicked: appController.applyNetworkSettings(
                                         serverHostField.text,
                                         parseInt(chatPortField.text),
@@ -2137,7 +2143,9 @@ ApplicationWindow {
                                 }
                             }
                             Text {
-                                text: "配置写入程序目录的 rubbagechat.ini；环境变量配置优先。"
+                                text: appController.networkLocked
+                                    ? "公网测试版已锁定服务器和 TLS 配置。"
+                                    : "配置保存在本机；环境变量配置优先。"
                                 color: root.textMuted
                                 font.pixelSize: 11
                                 font.weight: root.bodyWeight
