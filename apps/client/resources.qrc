@@ -1,0 +1,6 @@
+<RCC>
+    <qresource prefix="/">
+        <file alias="ui/Main.qml">ui/Main.qml</file>
+        <file alias="assets/PICOSC Harmony Manrope-VF.ttf">assets/PICOSC Harmony Manrope-VF.ttf</file>
+    </qresource>
+</RCC>

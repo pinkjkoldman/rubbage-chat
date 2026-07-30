@@ -1,0 +1,46 @@
+# Qt/qmake/CMake build output
+/build-*/
+/qmake-build/
+/deploy/
+/dist/
+/artifacts/
+/installer/build/
+Makefile
+Makefile.*
+*.o
+*.obj
+*.moc
+*.rcc
+*.pdb
+*.ilk
+*.idb
+*.user
+*.user.*
+
+# Runtime state
+*.log
+*.pid
+*.sqlite
+*.sqlite3
+*.db
+*.db-journal
+*.db-shm
+*.db-wal
+mongodb-data/
+
+# Local configuration and credentials
+rubbagechat.ini
+rubbagechat-server.ini
+*.pem
+*.key
+*.crt
+.env
+.env.*
+
+# IDE and operating system metadata
+.vs/
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+Desktop.ini
