@@ -82,9 +82,10 @@ public:
 	Q_INVOKABLE void logout();
 	Q_INVOKABLE void refreshAll();
 	Q_INVOKABLE void selectPeer(const QString& account);
-	Q_INVOKABLE void sendMessage(const QString& text);
+	Q_INVOKABLE bool sendMessage(const QString& text);
 	Q_INVOKABLE void sendFile(const QUrl& fileUrl);
 	Q_INVOKABLE void downloadAttachment(const QString& attachmentId);
+	Q_INVOKABLE void copyText(const QString& text);
 	Q_INVOKABLE void searchUser(const QString& account);
 	Q_INVOKABLE void sendFriendRequest(const QString& account);
 	Q_INVOKABLE void acceptFriendRequest(const QString& account);

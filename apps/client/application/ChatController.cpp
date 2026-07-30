@@ -3,6 +3,7 @@
 #include "../../../libs/protocol/ChatProtocol.h"
 
 #include <QCoreApplication>
+#include <QClipboard>
 #include <QCryptographicHash>
 #include <QDateTime>
 #include <QDir>
@@ -254,22 +255,23 @@ void ChatController::selectPeer(const QString& account)
 	sendRequest("history", {{"account", account}, {"limit", 200}});
 }
 
-void ChatController::sendMessage(const QString& text)
+bool ChatController::sendMessage(const QString& text)
 {
 	const QString body = text.trimmed();
 	if (m_selectedPeerAccount.isEmpty()) {
 		showToast(QStringLiteral("请先选择联系人"), true);
-		return;
+		return false;
 	}
 	if (body.isEmpty() || body.size() > 4000) {
 		showToast(QStringLiteral("消息长度需要在 1-4000 个字符之间"), true);
-		return;
+		return false;
 	}
 	sendRequest("send_message", {
 		{"account", m_selectedPeerAccount},
 		{"body", body},
 		{"clientMessageId", QUuid::createUuid().toString(QUuid::WithoutBraces)}
 	});
+	return true;
 }
 
 void ChatController::sendFile(const QUrl& fileUrl)
@@ -311,6 +313,14 @@ void ChatController::downloadAttachment(const QString& attachmentId)
 	m_fileTransferLabel = QStringLiteral("正在下载附件");
 	emit fileTransferChanged();
 	sendRequest("download_attachment", {{"attachmentId", attachmentId}});
+}
+
+void ChatController::copyText(const QString& text)
+{
+	if (text.isEmpty())
+		return;
+	QGuiApplication::clipboard()->setText(text);
+	showToast(QStringLiteral("消息已复制"));
 }
 
 void ChatController::searchUser(const QString& account)

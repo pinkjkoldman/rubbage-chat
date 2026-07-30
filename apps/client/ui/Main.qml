@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Dialogs
+import QtQuick.Effects
 import QtQuick.Layouts
 import QtQuick.Window
 
@@ -14,45 +15,135 @@ ApplicationWindow {
     title: "RubbageChat"
 
     readonly property bool dark: appController.effectiveDark
-    readonly property color bg: dark ? "#0f1420" : "#f4f7fb"
-    readonly property color panel: dark ? "#171e2d" : "#ffffff"
-    readonly property color panelAlt: dark ? "#1d2638" : "#f7f9fc"
-    readonly property color line: dark ? "#2b364b" : "#e8edf5"
-    readonly property color textMain: dark ? "#edf2ff" : "#182033"
-    readonly property color textMuted: dark ? "#94a2b9" : "#7a879d"
-    readonly property color accent: "#5b6cff"
-    readonly property color accentSoft: dark ? "#273255" : "#eef0ff"
-    readonly property color good: "#35c58a"
-    readonly property color danger: "#ee5f70"
+    readonly property color bg: dark ? "#0b0f17" : "#f7f8fa"
+    readonly property color panel: dark ? "#111827" : "#ffffff"
+    readonly property color panelAlt: dark ? "#18212f" : "#f2f4f7"
+    readonly property color line: dark ? "#263244" : "#e5e7eb"
+    readonly property color textMain: dark ? "#f8fafc" : "#111827"
+    readonly property color textMuted: dark ? "#94a3b8" : "#667085"
+    readonly property color accent: "#4f46e5"
+    readonly property color accentHover: "#4338ca"
+    readonly property color accentSoft: dark ? "#24234a" : "#eef2ff"
+    readonly property color good: "#22c55e"
+    readonly property color danger: "#ef4444"
+    readonly property color navBg: dark ? "#090d14" : "#111827"
+    readonly property color navHover: "#1b2638"
+    readonly property color navSelected: "#27344a"
+    readonly property color navMuted: "#94a3b8"
+    readonly property color accentText: "#ffffff"
+    readonly property int radiusControl: 12
+    readonly property int radiusPanel: 24
+    readonly property int space1: 4
+    readonly property int space2: 8
+    readonly property int space3: 16
+    readonly property int space4: 24
+    readonly property int space5: 32
+    readonly property int space6: 40
+    readonly property int titleWeight: Font.Bold
+    readonly property int bodyWeight: Font.Normal
     property int section: 0
+    property int settingsCategory: 0
     property bool emojiOpen: false
+    property var drafts: ({})
+    signal settingsSectionRequested(int index)
+
+    function normalizedQuery(value) {
+        return value.trim().toLowerCase()
+    }
+
+    function sidebarMatches(item, query, targetSection) {
+        let needle = normalizedQuery(query)
+        if (!needle.length)
+            return true
+        let searchable = (item.name || "") + " " + (item.account || "") + " "
+            + (targetSection === 0 ? (item.lastMessage || "") : (item.signature || ""))
+        return searchable.toLowerCase().includes(needle)
+    }
+
+    function sidebarMatchCount(items, query, targetSection) {
+        let count = 0
+        for (let i = 0; i < items.length; ++i) {
+            if (sidebarMatches(items[i], query, targetSection))
+                ++count
+        }
+        return count
+    }
+
+    function messageMatches(item, query) {
+        let needle = normalizedQuery(query)
+        return !needle.length || (item.body || "").toLowerCase().includes(needle)
+    }
+
+    function messageMatchCount(items, query) {
+        let count = 0
+        for (let i = 0; i < items.length; ++i) {
+            if (messageMatches(items[i], query))
+                ++count
+        }
+        return count
+    }
+
+    function draftFor(account) {
+        return drafts[account] || ""
+    }
+
+    function setDraft(account, value) {
+        if (!account.length)
+            return
+        let next = Object.assign({}, drafts)
+        if (value.trim().length)
+            next[account] = value
+        else
+            delete next[account]
+        drafts = next
+    }
 
     color: bg
 
     component PrimaryButton: Button {
         id: primaryButton
-        implicitHeight: 44
+        implicitHeight: 48
+        scale: down ? 0.975 : 1
         font.pixelSize: 14
-        font.weight: Font.DemiBold
+        font.weight: root.titleWeight
+        Behavior on scale {
+            NumberAnimation { duration: 120; easing.type: Easing.OutCubic }
+        }
         contentItem: Text {
             text: primaryButton.text
-            color: "white"
+            color: root.accentText
             font: primaryButton.font
             horizontalAlignment: Text.AlignHCenter
             verticalAlignment: Text.AlignVCenter
         }
         background: Rectangle {
-            radius: 12
-            color: primaryButton.down ? "#4658e6" : primaryButton.hovered ? "#6878ff" : root.accent
+            radius: root.radiusControl
             opacity: primaryButton.enabled ? 1 : 0.45
+            gradient: Gradient {
+                orientation: Gradient.Horizontal
+                GradientStop {
+                    position: 0
+                    color: primaryButton.down || primaryButton.hovered
+                        ? root.accentHover : root.accent
+                }
+                GradientStop {
+                    position: 1
+                    color: primaryButton.down || primaryButton.hovered
+                        ? "#3730a3" : "#6366f1"
+                }
+            }
         }
     }
 
     component GhostButton: Button {
         id: ghostButton
-        implicitHeight: 38
+        implicitHeight: 40
+        scale: down ? 0.975 : 1
         font.pixelSize: 13
-        font.weight: Font.DemiBold
+        font.weight: root.bodyWeight
+        Behavior on scale {
+            NumberAnimation { duration: 120; easing.type: Easing.OutCubic }
+        }
         contentItem: Text {
             text: ghostButton.text
             color: ghostButton.highlighted ? root.danger : root.textMain
@@ -61,27 +152,114 @@ ApplicationWindow {
             verticalAlignment: Text.AlignVCenter
         }
         background: Rectangle {
-            radius: 10
+            radius: root.radiusControl
             color: ghostButton.down ? root.line : ghostButton.hovered ? root.panelAlt : "transparent"
             border.color: root.line
+            Behavior on color { ColorAnimation { duration: 160 } }
         }
     }
 
     component AppTextField: TextField {
         id: field
-        implicitHeight: 44
+        implicitHeight: 48
         color: root.textMain
         placeholderTextColor: root.textMuted
         selectionColor: root.accent
         selectedTextColor: "white"
-        leftPadding: 14
-        rightPadding: 14
+        leftPadding: root.space3
+        rightPadding: root.space3
         font.pixelSize: 14
+        font.weight: root.bodyWeight
         background: Rectangle {
-            radius: 12
+            radius: root.radiusControl
             color: root.panelAlt
             border.color: field.activeFocus ? root.accent : root.line
             border.width: field.activeFocus ? 1.5 : 1
+            Behavior on border.color { ColorAnimation { duration: 180 } }
+        }
+    }
+
+    component AppSwitch: Switch {
+        id: appSwitch
+        implicitWidth: 44
+        implicitHeight: 24
+        padding: 0
+        contentItem: Item {}
+        indicator: Rectangle {
+            implicitWidth: 44
+            implicitHeight: 24
+            radius: 12
+            color: appSwitch.checked ? root.accent : root.line
+            Behavior on color { ColorAnimation { duration: 180 } }
+
+            Rectangle {
+                width: 20
+                height: 20
+                radius: 10
+                y: 2
+                x: appSwitch.checked ? 22 : 2
+                color: root.accentText
+                Behavior on x {
+                    NumberAnimation {
+                        duration: 180
+                        easing.type: Easing.OutCubic
+                    }
+                }
+            }
+        }
+    }
+
+    component AppComboBox: ComboBox {
+        id: appComboBox
+        implicitWidth: 136
+        implicitHeight: 40
+        leftPadding: root.space3
+        rightPadding: root.space5
+        font.pixelSize: 13
+        font.weight: root.bodyWeight
+        contentItem: Text {
+            text: appComboBox.displayText
+            color: root.textMain
+            font: appComboBox.font
+            verticalAlignment: Text.AlignVCenter
+            elide: Text.ElideRight
+        }
+        indicator: Text {
+            anchors.right: parent.right
+            anchors.rightMargin: root.space3
+            anchors.verticalCenter: parent.verticalCenter
+            text: "⌄"
+            color: root.textMuted
+            font.pixelSize: 14
+        }
+        background: Rectangle {
+            radius: root.radiusControl
+            color: root.panelAlt
+            border.color: appComboBox.activeFocus ? root.accent : root.line
+        }
+    }
+
+    component DialogHeader: Label {
+        required property string label
+        text: label
+        color: root.textMain
+        font.pixelSize: 20
+        font.weight: root.titleWeight
+        leftPadding: root.space4
+        rightPadding: root.space4
+        topPadding: root.space4
+        bottomPadding: root.space3
+        background: Rectangle { color: root.panel }
+    }
+
+    component ElevatedSurface: Rectangle {
+        layer.enabled: true
+        layer.effect: MultiEffect {
+            shadowEnabled: true
+            shadowColor: root.dark ? "#99000000" : "#260f172a"
+            shadowOpacity: 0.7
+            shadowBlur: 0.55
+            shadowVerticalOffset: 6
         }
     }
 
@@ -92,13 +270,22 @@ ApplicationWindow {
         width: avatarSize
         height: avatarSize
         radius: avatarSize / 2
-        color: root.accentSoft
+        gradient: Gradient {
+            GradientStop {
+                position: 0
+                color: root.dark ? "#312e81" : "#eef2ff"
+            }
+            GradientStop {
+                position: 1
+                color: root.dark ? "#1e1b4b" : "#e0e7ff"
+            }
+        }
         Text {
             anchors.centerIn: parent
             text: parent.label.length ? parent.label.slice(0, 1).toUpperCase() : "O"
             color: root.accent
             font.pixelSize: parent.avatarSize * 0.38
-            font.weight: Font.Bold
+            font.weight: root.titleWeight
         }
         Rectangle {
             visible: parent.online && appController.showOnlineStatus
@@ -114,8 +301,13 @@ ApplicationWindow {
     }
 
     Loader {
+        id: rootLoader
         anchors.fill: parent
         sourceComponent: appController.authenticated ? shellComponent : authComponent
+        opacity: status === Loader.Ready ? 1 : 0
+        Behavior on opacity {
+            NumberAnimation { duration: 220 }
+        }
     }
 
     Component {
@@ -129,72 +321,87 @@ ApplicationWindow {
                 Rectangle {
                     width: parent.width * 0.46
                     height: parent.height
-                    color: root.dark ? "#18213a" : "#edf1ff"
                     visible: parent.width >= 1040
+                    gradient: Gradient {
+                        GradientStop {
+                            position: 0
+                            color: root.dark ? "#171638" : "#eef2ff"
+                        }
+                        GradientStop {
+                            position: 1
+                            color: root.dark ? root.bg : "#f5f7ff"
+                        }
+                    }
 
                     Column {
                         anchors.centerIn: parent
-                        width: Math.min(420, parent.width - 80)
-                        spacing: 22
+                        width: Math.min(432, parent.width - 96)
+                        spacing: root.space4
 
-                        Rectangle {
-                            width: 68
-                            height: 68
-                            radius: 22
+                        ElevatedSurface {
+                            width: 64
+                            height: 64
+                            radius: root.radiusPanel
                             color: root.accent
                             Text {
                                 anchors.centerIn: parent
                                 text: "R"
-                                color: "white"
-                                font.pixelSize: 32
-                                font.bold: true
+                                color: root.accentText
+                                font.pixelSize: 28
+                                font.weight: root.titleWeight
                             }
                         }
                         Text {
                             width: parent.width
                             text: "让每一次对话\n都清晰而自在"
                             color: root.textMain
-                            font.pixelSize: 38
-                            font.weight: Font.Bold
-                            lineHeight: 1.18
+                            font.pixelSize: 40
+                            font.weight: root.titleWeight
+                            lineHeight: 1.2
                         }
                         Text {
                             width: parent.width
                             text: "消息、联系人和设置都在同一个简洁空间里。"
                             color: root.textMuted
                             font.pixelSize: 16
+                            font.weight: root.bodyWeight
                             wrapMode: Text.WordWrap
                         }
                         Row {
-                            spacing: 18
+                            spacing: root.space3
                             Repeater {
                                 model: ["实时消息", "离线送达", "MongoDB 历史"]
                                 delegate: Row {
-                                    spacing: 7
+                                    spacing: root.space2
                                     Rectangle {
                                         width: 18
                                         height: 18
                                         radius: 9
-                                        color: root.good
-                                        Text { anchors.centerIn: parent; text: "✓"; color: "white"; font.pixelSize: 11 }
+                                        color: root.accent
+                                        Text { anchors.centerIn: parent; text: "✓"; color: root.accentText; font.pixelSize: 11 }
                                     }
-                                    Text { text: modelData; color: root.textMuted; font.pixelSize: 13 }
+                                    Text {
+                                        text: modelData
+                                        color: root.textMuted
+                                        font.pixelSize: 13
+                                        font.weight: root.bodyWeight
+                                    }
                                 }
                             }
                         }
                     }
                 }
 
-                Rectangle {
+                ElevatedSurface {
                     id: authCard
-                    width: Math.min(420, parent.width - 80)
-                    height: authMode === 0 ? 500 : 595
-                    radius: 24
+                    width: Math.min(432, parent.width - 80)
+                    height: authMode === 0 ? 520 : 616
+                    radius: root.radiusPanel
                     color: root.panel
                     anchors.verticalCenter: parent.verticalCenter
                     anchors.right: parent.right
                     anchors.rightMargin: parent.width >= 1040
-                        ? Math.max(70, (parent.width * 0.54 - width) / 2)
+                        ? Math.max(72, (parent.width * 0.54 - width) / 2)
                         : (parent.width - width) / 2
                     border.color: root.line
 
@@ -202,40 +409,43 @@ ApplicationWindow {
 
                     ColumnLayout {
                         anchors.fill: parent
-                        anchors.margins: 38
-                        spacing: 15
+                        anchors.margins: root.space6
+                        spacing: root.space3
 
                         Text {
                             text: authCard.authMode === 0 ? "欢迎回来" : "创建 RubbageChat 账号"
                             color: root.textMain
                             font.pixelSize: 28
-                            font.weight: Font.Bold
+                            font.weight: root.titleWeight
                         }
                         Text {
                             text: authCard.authMode === 0 ? "登录后继续你的对话" : "注册后会获得一个 9 位账号"
                             color: root.textMuted
                             font.pixelSize: 14
+                            font.weight: root.bodyWeight
                         }
 
                         RowLayout {
                             Layout.fillWidth: true
-                            Layout.topMargin: 8
-                            spacing: 6
+                            Layout.topMargin: root.space2
+                            spacing: root.space2
                             Repeater {
                                 model: ["登录", "注册"]
                                 delegate: Button {
+                                    id: authModeButton
                                     Layout.fillWidth: true
-                                    implicitHeight: 38
+                                    implicitHeight: 40
                                     text: modelData
                                     contentItem: Text {
-                                        text: parent.text
+                                        text: authModeButton.text
                                         color: authCard.authMode === index ? root.accent : root.textMuted
-                                        font.weight: Font.DemiBold
+                                        font.weight: authCard.authMode === index
+                                            ? root.titleWeight : root.bodyWeight
                                         horizontalAlignment: Text.AlignHCenter
                                         verticalAlignment: Text.AlignVCenter
                                     }
                                     background: Rectangle {
-                                        radius: 10
+                                        radius: root.radiusControl
                                         color: authCard.authMode === index ? root.accentSoft : "transparent"
                                     }
                                     onClicked: authCard.authMode = index
@@ -281,7 +491,7 @@ ApplicationWindow {
 
                         PrimaryButton {
                             Layout.fillWidth: true
-                            Layout.topMargin: 5
+                            Layout.topMargin: root.space2
                             text: authCard.authMode === 0 ? "登录" : "注册账号"
                             onClicked: {
                                 if (authCard.authMode === 0)
@@ -298,6 +508,7 @@ ApplicationWindow {
                             color: root.textMuted
                             horizontalAlignment: Text.AlignHCenter
                             font.pixelSize: 12
+                            font.weight: root.bodyWeight
                         }
                         Item { Layout.fillHeight: true }
                         Text {
@@ -306,6 +517,7 @@ ApplicationWindow {
                             color: root.textMuted
                             horizontalAlignment: Text.AlignHCenter
                             font.pixelSize: 12
+                            font.weight: root.bodyWeight
                         }
                     }
 
@@ -331,28 +543,28 @@ ApplicationWindow {
             spacing: 0
 
             Rectangle {
-                Layout.preferredWidth: 78
+                Layout.preferredWidth: 88
                 Layout.fillHeight: true
-                color: root.dark ? "#111827" : "#172033"
+                color: root.navBg
 
                 ColumnLayout {
                     anchors.fill: parent
-                    anchors.topMargin: 18
-                    anchors.bottomMargin: 18
-                    spacing: 10
+                    anchors.topMargin: root.space4
+                    anchors.bottomMargin: root.space4
+                    spacing: root.space2
 
                     Rectangle {
                         Layout.alignment: Qt.AlignHCenter
-                        width: 46
-                        height: 46
-                        radius: 15
+                        Layout.preferredWidth: 48
+                        Layout.preferredHeight: 48
+                        radius: root.radiusControl
                         color: root.accent
                         Text {
                             anchors.centerIn: parent
                             text: appController.currentUserName.slice(0, 1).toUpperCase()
-                            color: "white"
+                            color: root.accentText
                             font.pixelSize: 19
-                            font.bold: true
+                            font.weight: root.titleWeight
                         }
                         MouseArea {
                             anchors.fill: parent
@@ -363,40 +575,59 @@ ApplicationWindow {
                         ToolTip.text: "编辑个人资料"
                     }
 
-                    Item { height: 12; width: 1 }
+                    Item {
+                        Layout.preferredHeight: root.space3
+                        Layout.preferredWidth: 1
+                    }
 
                     Repeater {
                         model: [
                             {icon: "●", label: "消息"},
-                            {icon: "♟", label: "联系人"},
+                            {icon: "人", label: "联系人"},
                             {icon: "♢", label: "通知"},
                             {icon: "⚙", label: "设置"}
                         ]
                         delegate: Item {
                             Layout.alignment: Qt.AlignHCenter
-                            width: 54
-                            height: 52
+                            width: 64
+                            height: 56
 
                             Rectangle {
                                 anchors.fill: parent
-                                radius: 14
-                                color: root.section === index ? "#2f3f62" : navMouse.containsMouse ? "#222e46" : "transparent"
+                                radius: root.radiusControl
+                                color: root.section === index
+                                    ? root.navSelected
+                                    : navMouse.containsMouse ? root.navHover : "transparent"
+                                Behavior on color { ColorAnimation { duration: 180 } }
+                            }
+                            Rectangle {
+                                visible: root.section === index
+                                width: 3
+                                height: 24
+                                radius: 2
+                                anchors.left: parent.left
+                                anchors.leftMargin: 3
+                                anchors.verticalCenter: parent.verticalCenter
+                                color: root.accent
                             }
                             Text {
                                 anchors.horizontalCenter: parent.horizontalCenter
                                 anchors.top: parent.top
-                                anchors.topMargin: 7
+                                anchors.topMargin: root.space2
                                 text: modelData.icon
-                                color: root.section === index ? "white" : "#9eabc2"
-                                font.pixelSize: 18
+                                color: root.section === index
+                                    ? root.accentText : root.navMuted
+                                font.pixelSize: 17
                             }
                             Text {
                                 anchors.horizontalCenter: parent.horizontalCenter
                                 anchors.bottom: parent.bottom
-                                anchors.bottomMargin: 5
+                                anchors.bottomMargin: root.space2
                                 text: modelData.label
-                                color: root.section === index ? "white" : "#9eabc2"
+                                color: root.section === index
+                                    ? root.accentText : root.navMuted
                                 font.pixelSize: 10
+                                font.weight: root.bodyWeight
                             }
                             Rectangle {
                                 visible: index === 2 && appController.notificationCount > 0
@@ -409,9 +640,9 @@ ApplicationWindow {
                                 Text {
                                     anchors.centerIn: parent
                                     text: Math.min(9, appController.notificationCount)
-                                    color: "white"
+                                    color: root.accentText
                                     font.pixelSize: 10
-                                    font.bold: true
+                                    font.weight: root.titleWeight
                                 }
                             }
                             MouseArea {
@@ -428,13 +659,13 @@ ApplicationWindow {
 
                     Rectangle {
                         Layout.alignment: Qt.AlignHCenter
-                        width: 44
-                        height: 28
-                        radius: 14
-                        color: appController.connected ? "#193e38" : "#3d2932"
+                        Layout.preferredWidth: 56
+                        Layout.preferredHeight: 32
+                        radius: root.radiusControl
+                        color: root.navSelected
                         Row {
                             anchors.centerIn: parent
-                            spacing: 5
+                            spacing: root.space1
                             Rectangle {
                                 width: 7
                                 height: 7
@@ -443,8 +674,9 @@ ApplicationWindow {
                             }
                             Text {
                                 text: appController.connected ? "在线" : "重连"
-                                color: "white"
-                                font.pixelSize: 9
+                                color: root.accentText
+                                font.pixelSize: 10
+                                font.weight: root.bodyWeight
                             }
                         }
                     }
@@ -452,15 +684,15 @@ ApplicationWindow {
             }
 
             Rectangle {
-                Layout.preferredWidth: root.section === 3 ? 260 : 318
+                Layout.preferredWidth: root.section === 3 ? 280 : 336
                 Layout.fillHeight: true
                 color: root.panel
                 border.color: root.line
 
                 ColumnLayout {
                     anchors.fill: parent
-                    anchors.margins: 18
-                    spacing: 12
+                    anchors.margins: root.space4
+                    spacing: root.space3
 
                     RowLayout {
                         Layout.fillWidth: true
@@ -468,23 +700,28 @@ ApplicationWindow {
                             text: ["消息", "联系人", "通知", "设置"][root.section]
                             color: root.textMain
                             font.pixelSize: 24
-                            font.weight: Font.Bold
+                            font.weight: root.titleWeight
                         }
                         Item { Layout.fillWidth: true }
                         Button {
+                            id: addFriendButton
                             visible: root.section === 1
-                            width: 36
-                            height: 36
+                            Layout.preferredWidth: 40
+                            Layout.preferredHeight: 40
                             text: "+"
                             font.pixelSize: 22
                             contentItem: Text {
-                                text: parent.text
-                                color: "white"
-                                font: parent.font
+                                text: addFriendButton.text
+                                color: root.accentText
+                                font: addFriendButton.font
                                 horizontalAlignment: Text.AlignHCenter
                                 verticalAlignment: Text.AlignVCenter
                             }
-                            background: Rectangle { radius: 11; color: root.accent }
+                            background: Rectangle {
+                                radius: root.radiusControl
+                                color: addFriendButton.hovered
+                                    ? root.accentHover : root.accent
+                            }
                             onClicked: addFriendDialog.open()
                             ToolTip.visible: hovered
                             ToolTip.text: "添加好友"
@@ -495,8 +732,33 @@ ApplicationWindow {
                         id: sidebarSearch
                         visible: root.section < 2
                         Layout.fillWidth: true
-                        implicitHeight: 40
+                        implicitHeight: 44
                         placeholderText: root.section === 0 ? "搜索会话" : "搜索联系人"
+                        rightPadding: text.length ? 40 : 14
+
+                        Button {
+                            id: clearSidebarSearchButton
+                            visible: sidebarSearch.text.length > 0
+                            anchors.right: parent.right
+                            anchors.rightMargin: root.space2
+                            anchors.verticalCenter: parent.verticalCenter
+                            width: 28
+                            height: 28
+                            text: "×"
+                            contentItem: Text {
+                                text: clearSidebarSearchButton.text
+                                color: root.textMuted
+                                font.pixelSize: 18
+                                horizontalAlignment: Text.AlignHCenter
+                                verticalAlignment: Text.AlignVCenter
+                            }
+                            background: Rectangle {
+                                radius: root.radiusControl
+                                color: clearSidebarSearchButton.hovered
+                                    ? root.line : "transparent"
+                            }
+                            onClicked: sidebarSearch.clear()
+                        }
                     }
 
                     ListView {
@@ -505,26 +767,36 @@ ApplicationWindow {
                         Layout.fillWidth: true
                         Layout.fillHeight: true
                         clip: true
-                        spacing: 4
+                        spacing: root.space1
                         model: root.section === 0 ? appController.conversations : appController.contacts
 
                         delegate: Item {
                             width: sidebarList.width
-                            height: delegateVisible ? (appController.compactMode ? 58 : 70) : 0
+                            height: delegateVisible ? (appController.compactMode ? 64 : 80) : 0
                             visible: delegateVisible
-                            property bool delegateVisible: !sidebarSearch.text.length
-                                || modelData.name.toLowerCase().includes(sidebarSearch.text.toLowerCase())
-                                || modelData.account.includes(sidebarSearch.text)
+                            property bool delegateVisible: root.sidebarMatches(
+                                modelData, sidebarSearch.text, root.section)
 
                             Rectangle {
                                 anchors.fill: parent
-                                radius: 14
+                                radius: root.radiusControl
                                 color: appController.selectedPeerAccount === modelData.account
                                     ? root.accentSoft : itemMouse.containsMouse ? root.panelAlt : "transparent"
+                                Behavior on color { ColorAnimation { duration: 180 } }
+                            }
+                            Rectangle {
+                                visible: appController.selectedPeerAccount === modelData.account
+                                width: 3
+                                height: 28
+                                radius: 2
+                                anchors.left: parent.left
+                                anchors.leftMargin: 2
+                                anchors.verticalCenter: parent.verticalCenter
+                                color: root.accent
                             }
                             Avatar {
                                 anchors.left: parent.left
-                                anchors.leftMargin: 10
+                                anchors.leftMargin: root.space2
                                 anchors.verticalCenter: parent.verticalCenter
                                 avatarSize: appController.compactMode ? 38 : 44
                                 label: modelData.initial
@@ -532,20 +804,20 @@ ApplicationWindow {
                             }
                             Column {
                                 anchors.left: parent.left
-                                anchors.leftMargin: appController.compactMode ? 58 : 64
+                                anchors.leftMargin: appController.compactMode ? 56 : 64
                                 anchors.right: parent.right
-                                anchors.rightMargin: 12
+                                anchors.rightMargin: root.space2
                                 anchors.verticalCenter: parent.verticalCenter
-                                spacing: 4
+                                spacing: root.space1
                                 Row {
                                     width: parent.width
-                                    spacing: 6
+                                    spacing: root.space2
                                     Text {
                                         width: parent.width - 56
                                         text: (modelData.pinned ? "⌃ " : "") + modelData.name
                                         color: root.textMain
                                         font.pixelSize: 14
-                                        font.weight: Font.DemiBold
+                                        font.weight: root.titleWeight
                                         elide: Text.ElideRight
                                     }
                                     Text {
@@ -554,17 +826,24 @@ ApplicationWindow {
                                         text: modelData.time
                                         color: root.textMuted
                                         font.pixelSize: 10
+                                        font.weight: root.bodyWeight
                                         horizontalAlignment: Text.AlignRight
                                     }
                                 }
                                 Row {
                                     width: parent.width
-                                    Text {
-                                        width: parent.width - 28
-                                        text: root.section === 0 ? modelData.lastMessage
-                                            : modelData.online ? "在线" : modelData.signature
-                                        color: root.textMuted
+                                     Text {
+                                         width: parent.width - 28
+                                         text: root.section === 0
+                                             ? (root.draftFor(modelData.account).length
+                                                 ? "草稿：" + root.draftFor(modelData.account).trim()
+                                                 : modelData.lastMessage)
+                                             : modelData.online ? "在线" : modelData.signature
+                                         color: root.section === 0
+                                             && root.draftFor(modelData.account).length
+                                             ? root.textMain : root.textMuted
                                         font.pixelSize: 12
+                                        font.weight: root.bodyWeight
                                         elide: Text.ElideRight
                                     }
                                     Rectangle {
@@ -576,9 +855,9 @@ ApplicationWindow {
                                         Text {
                                             anchors.centerIn: parent
                                             text: Math.min(99, modelData.unread)
-                                            color: "white"
+                                            color: root.accentText
                                             font.pixelSize: 10
-                                            font.bold: true
+                                            font.weight: root.titleWeight
                                         }
                                     }
                                 }
@@ -607,48 +886,84 @@ ApplicationWindow {
                             visible: height > 0
                             Column {
                                 anchors.centerIn: parent
-                                spacing: 10
+                                spacing: root.space2
                                 Text {
                                     anchors.horizontalCenter: parent.horizontalCenter
                                     text: root.section === 0 ? "还没有会话" : "还没有联系人"
                                     color: root.textMain
                                     font.pixelSize: 15
-                                    font.weight: Font.DemiBold
+                                    font.weight: root.titleWeight
                                 }
                                 Text {
                                     anchors.horizontalCenter: parent.horizontalCenter
                                     text: root.section === 0 ? "添加好友后开始聊天" : "点击右上角 + 添加好友"
                                     color: root.textMuted
                                     font.pixelSize: 12
+                                    font.weight: root.bodyWeight
                                 }
                             }
                         }
+
+                        Column {
+                            anchors.centerIn: parent
+                            spacing: root.space2
+                            visible: sidebarSearch.text.length > 0
+                                && sidebarList.count > 0
+                                && root.sidebarMatchCount(sidebarList.model,
+                                    sidebarSearch.text, root.section) === 0
+                            Text {
+                                anchors.horizontalCenter: parent.horizontalCenter
+                                text: "没有匹配结果"
+                                color: root.textMain
+                                font.pixelSize: 15
+                                font.weight: root.titleWeight
+                            }
+                            Text {
+                                anchors.horizontalCenter: parent.horizontalCenter
+                                text: "试试昵称、账号或消息内容"
+                                color: root.textMuted
+                                font.pixelSize: 12
+                                font.weight: root.bodyWeight
+                            }
+                            GhostButton {
+                                anchors.horizontalCenter: parent.horizontalCenter
+                                text: "清除搜索"
+                                onClicked: sidebarSearch.clear()
+                            }
+                        }
+                    }
+
+                    Shortcut {
+                        sequence: "Ctrl+K"
+                        enabled: root.section < 2
+                        onActivated: sidebarSearch.forceActiveFocus()
                     }
 
                     ColumnLayout {
                         visible: root.section === 2
                         Layout.fillWidth: true
                         Layout.fillHeight: true
-                        spacing: 12
+                        spacing: root.space3
                         Rectangle {
                             Layout.fillWidth: true
-                            height: 82
-                            radius: 15
+                            Layout.preferredHeight: 88
+                            radius: root.radiusControl
                             color: root.panelAlt
                             Column {
                                 anchors.fill: parent
-                                anchors.margins: 14
-                                spacing: 6
+                                anchors.margins: root.space3
+                                spacing: root.space2
                                 Text {
                                     text: appController.notificationCount + " 条待处理"
                                     color: root.textMain
                                     font.pixelSize: 16
-                                    font.weight: Font.DemiBold
+                                    font.weight: root.titleWeight
                                 }
                                 Text {
                                     text: "好友申请会离线保存"
                                     color: root.textMuted
                                     font.pixelSize: 12
+                                    font.weight: root.bodyWeight
                                 }
                             }
                         }
@@ -659,17 +974,17 @@ ApplicationWindow {
                         visible: root.section === 3
                         Layout.fillWidth: true
                         Layout.fillHeight: true
-                        spacing: 6
+                        spacing: root.space2
 
                         Rectangle {
                             Layout.fillWidth: true
-                            height: 112
-                            radius: 16
+                            Layout.preferredHeight: 120
+                            radius: root.radiusControl
                             color: root.panelAlt
                             Row {
                                 anchors.fill: parent
-                                anchors.margins: 14
-                                spacing: 12
+                                anchors.margins: root.space3
+                                spacing: root.space3
                                 Avatar {
                                     avatarSize: 48
                                     label: appController.currentUserName
@@ -678,19 +993,25 @@ ApplicationWindow {
                                 Column {
                                     anchors.verticalCenter: parent.verticalCenter
                                     width: 150
-                                    spacing: 4
+                                    spacing: root.space1
                                     Text {
                                         text: appController.currentUserName
                                         color: root.textMain
                                         font.pixelSize: 15
-                                        font.weight: Font.Bold
+                                        font.weight: root.titleWeight
                                     }
-                                    Text { text: appController.currentUserAccount; color: root.textMuted; font.pixelSize: 11 }
+                                    Text {
+                                        text: appController.currentUserAccount
+                                        color: root.textMuted
+                                        font.pixelSize: 11
+                                        font.weight: root.bodyWeight
+                                    }
                                     Text {
                                         width: parent.width
                                         text: appController.currentUserSignature
                                         color: root.textMuted
                                         font.pixelSize: 11
+                                        font.weight: root.bodyWeight
                                         elide: Text.ElideRight
                                     }
                                 }
@@ -706,23 +1027,38 @@ ApplicationWindow {
                             model: ["外观", "聊天", "通知", "隐私", "网络", "账号"]
                             delegate: Rectangle {
                                 Layout.fillWidth: true
-                                height: 42
-                                radius: 10
-                                color: settingsMouse.containsMouse ? root.panelAlt : "transparent"
+                                height: 48
+                                radius: root.radiusControl
+                                color: root.settingsCategory === index
+                                    ? root.accentSoft
+                                    : settingsMouse.containsMouse ? root.panelAlt : "transparent"
+                                Behavior on color { ColorAnimation { duration: 160 } }
+                                Rectangle {
+                                    width: 3
+                                    height: 24
+                                    radius: 2
+                                    anchors.left: parent.left
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    color: root.accent
+                                    opacity: root.settingsCategory === index ? 1 : 0
+                                    Behavior on opacity { NumberAnimation { duration: 160 } }
+                                }
                                 Text {
                                     anchors.left: parent.left
-                                    anchors.leftMargin: 12
+                                    anchors.leftMargin: root.space3
                                     anchors.verticalCenter: parent.verticalCenter
                                     text: modelData
-                                    color: root.textMain
+                                    color: root.settingsCategory === index ? root.accent : root.textMain
                                     font.pixelSize: 13
+                                    font.weight: root.settingsCategory === index
+                                        ? root.titleWeight : root.bodyWeight
                                 }
                                 Text {
                                     anchors.right: parent.right
-                                    anchors.rightMargin: 12
+                                    anchors.rightMargin: root.space3
                                     anchors.verticalCenter: parent.verticalCenter
                                     text: "›"
-                                    color: root.textMuted
+                                    color: root.settingsCategory === index ? root.accent : root.textMuted
                                     font.pixelSize: 20
                                 }
                                 MouseArea {
@@ -730,7 +1066,7 @@ ApplicationWindow {
                                     anchors.fill: parent
                                     hoverEnabled: true
                                     cursorShape: Qt.PointingHandCursor
-                                    onClicked: settingsView.positionViewAtIndex(index, ListView.Beginning)
+                                    onClicked: root.settingsSectionRequested(index)
                                 }
                             }
                         }
@@ -745,11 +1081,25 @@ ApplicationWindow {
                 color: root.bg
 
                 Loader {
+                    id: contentLoader
                     anchors.fill: parent
                     sourceComponent: root.section === 0 ? chatView
                         : root.section === 1 ? contactView
                         : root.section === 2 ? requestView
                         : settingsComponent
+                    opacity: status === Loader.Ready ? 1 : 0
+                    transform: Translate {
+                        y: contentLoader.status === Loader.Ready ? 0 : 8
+                        Behavior on y {
+                            NumberAnimation {
+                                duration: 200
+                                easing.type: Easing.OutCubic
+                            }
+                        }
+                    }
+                    Behavior on opacity {
+                        NumberAnimation { duration: 180 }
+                    }
                 }
             }
         }
@@ -758,15 +1108,18 @@ ApplicationWindow {
     Component {
         id: chatView
         Item {
+            id: chatPage
+            property bool messageSearchOpen: false
+
             Column {
                 anchors.centerIn: parent
-                spacing: 12
+                spacing: root.space3
                 visible: !appController.selectedPeerAccount.length
                 Rectangle {
                     anchors.horizontalCenter: parent.horizontalCenter
                     width: 76
                     height: 76
-                    radius: 24
+                    radius: root.radiusPanel
                     color: root.accentSoft
                     Text { anchors.centerIn: parent; text: "···"; color: root.accent; font.pixelSize: 28 }
                 }
@@ -775,13 +1128,14 @@ ApplicationWindow {
                     text: "选择一个联系人开始聊天"
                     color: root.textMain
                     font.pixelSize: 18
-                    font.weight: Font.DemiBold
+                    font.weight: root.titleWeight
                 }
                 Text {
                     anchors.horizontalCenter: parent.horizontalCenter
                     text: "消息会先写入服务端 MongoDB，对方上线后可读取完整历史"
                     color: root.textMuted
                     font.pixelSize: 13
+                    font.weight: root.bodyWeight
                 }
             }
 
@@ -792,40 +1146,106 @@ ApplicationWindow {
 
                 Rectangle {
                     Layout.fillWidth: true
-                    Layout.preferredHeight: 72
+                    Layout.preferredHeight: 80
                     color: root.panel
                     border.color: root.line
                     RowLayout {
                         anchors.fill: parent
-                        anchors.leftMargin: 22
-                        anchors.rightMargin: 16
+                        anchors.leftMargin: root.space4
+                        anchors.rightMargin: root.space4
                         Avatar {
                             avatarSize: 42
                             label: appController.selectedPeerName
                             online: appController.selectedPeerOnline
                         }
                         ColumnLayout {
-                            Layout.leftMargin: 4
-                            spacing: 2
+                            Layout.leftMargin: root.space2
+                            spacing: root.space1
                             Text {
                                 text: appController.selectedPeerName
                                 color: root.textMain
                                 font.pixelSize: 16
-                                font.weight: Font.Bold
+                                font.weight: root.titleWeight
                             }
                             Text {
                                 text: appController.selectedPeerOnline ? "在线" : "离线"
                                 color: appController.selectedPeerOnline ? root.good : root.textMuted
                                 font.pixelSize: 11
+                                font.weight: root.bodyWeight
                             }
                         }
                         Item { Layout.fillWidth: true }
                         GhostButton {
+                            text: "⌕"
+                            Layout.preferredWidth: 42
+                            highlighted: chatPage.messageSearchOpen
+                            onClicked: {
+                                chatPage.messageSearchOpen = !chatPage.messageSearchOpen
+                                if (chatPage.messageSearchOpen)
+                                    Qt.callLater(function() { messageSearch.forceActiveFocus() })
+                                else
+                                    messageSearch.clear()
+                            }
+                            ToolTip.visible: hovered
+                            ToolTip.text: "搜索聊天记录（Ctrl+F）"
+                        }
+                        GhostButton {
                             text: "⋯"
-                            width: 42
+                            Layout.preferredWidth: 42
                             onClicked: {
                                 conversationMenu.peerAccount = appController.selectedPeerAccount
                                 conversationMenu.popup()
+                            }
+                        }
+                    }
+                }
+
+                Rectangle {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: implicitHeight
+                    implicitHeight: chatPage.messageSearchOpen ? 64 : 0
+                    opacity: chatPage.messageSearchOpen ? 1 : 0
+                    enabled: chatPage.messageSearchOpen
+                    clip: true
+                    color: root.panel
+                    border.color: root.line
+                    Behavior on implicitHeight {
+                        NumberAnimation {
+                            duration: 200
+                            easing.type: Easing.OutCubic
+                        }
+                    }
+                    Behavior on opacity {
+                        NumberAnimation { duration: 160 }
+                    }
+
+                    RowLayout {
+                        anchors.fill: parent
+                        anchors.leftMargin: root.space4
+                        anchors.rightMargin: root.space4
+                        spacing: root.space2
+
+                        AppTextField {
+                            id: messageSearch
+                            Layout.fillWidth: true
+                            implicitHeight: 40
+                            placeholderText: "搜索当前聊天记录"
+                            onAccepted: messageList.positionViewAtBeginning()
+                        }
+                        Text {
+                            text: messageSearch.text.length
+                                ? root.messageMatchCount(appController.messages,
+                                    messageSearch.text) + " 条"
+                                : appController.messages.length + " 条消息"
+                            color: root.textMuted
+                            font.pixelSize: 12
+                            font.weight: root.bodyWeight
+                        }
+                        GhostButton {
+                            text: "关闭"
+                            onClicked: {
+                                messageSearch.clear()
+                                chatPage.messageSearchOpen = false
                             }
                         }
                     }
@@ -835,43 +1255,93 @@ ApplicationWindow {
                     id: messageList
                     Layout.fillWidth: true
                     Layout.fillHeight: true
-                    Layout.margins: 16
-                    spacing: 8
+                    Layout.margins: root.space4
+                    spacing: root.space2
                     clip: true
                     model: appController.messages
 
                     delegate: Item {
+                        id: messageRow
                         width: messageList.width
-                        height: bubble.height + 18
+                        height: messageVisible ? bubble.height + root.space3 : 0
+                        visible: messageVisible
+                        opacity: 0
+                        transform: Translate { id: messageShift; y: 6 }
+                        property bool messageVisible: !chatPage.messageSearchOpen
+                            || root.messageMatches(modelData, messageSearch.text)
+                        Component.onCompleted: messageEntrance.start()
+                        ParallelAnimation {
+                            id: messageEntrance
+                            NumberAnimation {
+                                target: messageRow
+                                property: "opacity"
+                                to: 1
+                                duration: 180
+                                easing.type: Easing.OutCubic
+                            }
+                            NumberAnimation {
+                                target: messageShift
+                                property: "y"
+                                to: 0
+                                duration: 220
+                                easing.type: Easing.OutCubic
+                            }
+                        }
                         Rectangle {
                             id: bubble
                             anchors.right: modelData.mine ? parent.right : undefined
                             anchors.left: modelData.mine ? undefined : parent.left
-                            width: Math.min(messageText.implicitWidth + 28, parent.width * 0.7)
-                            height: messageText.implicitHeight + 30
-                            radius: 16
-                            color: modelData.mine ? root.accent : root.panel
-                            border.color: modelData.mine ? root.accent : root.line
+                            width: Math.min(messageText.implicitWidth + 32, parent.width * 0.68)
+                            height: messageText.implicitHeight + 32
+                            radius: root.radiusControl
+                            gradient: Gradient {
+                                orientation: Gradient.Horizontal
+                                GradientStop {
+                                    position: 0
+                                    color: modelData.mine ? root.accent : root.panel
+                                }
+                                GradientStop {
+                                    position: 1
+                                    color: modelData.mine ? "#6366f1" : root.panel
+                                }
+                            }
+                            border.color: chatPage.messageSearchOpen
+                                && messageSearch.text.length
+                                ? root.accent
+                                : modelData.mine ? root.accent : root.line
+                            border.width: chatPage.messageSearchOpen
+                                && messageSearch.text.length ? 2 : 1
+                            layer.enabled: true
+                            layer.effect: MultiEffect {
+                                shadowEnabled: true
+                                shadowColor: root.dark ? "#66000000" : "#160f172a"
+                                shadowOpacity: 0.65
+                                shadowBlur: 0.4
+                                shadowVerticalOffset: 3
+                            }
                             Text {
                                 id: messageText
                                 anchors.fill: parent
-                                anchors.leftMargin: 14
-                                anchors.rightMargin: 14
-                                anchors.topMargin: 9
-                                anchors.bottomMargin: 16
+                                anchors.leftMargin: root.space3
+                                anchors.rightMargin: root.space3
+                                anchors.topMargin: root.space2
+                                anchors.bottomMargin: root.space3
                                 text: modelData.body
-                                color: modelData.mine ? "white" : root.textMain
+                                color: modelData.mine ? root.accentText : root.textMain
                                 font.pixelSize: 14
+                                font.weight: root.bodyWeight
                                 wrapMode: Text.Wrap
                             }
                             Text {
                                 anchors.right: parent.right
-                                anchors.rightMargin: 10
+                                anchors.rightMargin: root.space2
                                 anchors.bottom: parent.bottom
                                 anchors.bottomMargin: 4
                                 text: modelData.time
-                                color: modelData.mine ? "#dce0ff" : root.textMuted
+                                color: modelData.mine ? root.accentText : root.textMuted
+                                opacity: modelData.mine ? 0.72 : 1
                                 font.pixelSize: 9
+                                font.weight: root.bodyWeight
                             }
                             TapHandler {
                                 enabled: modelData.type === "file"
@@ -884,6 +1354,39 @@ ApplicationWindow {
                                 && modelData.type === "file"
                             ToolTip.text: "点击下载附件"
                             HoverHandler { id: bubbleHover }
+                            TapHandler {
+                                acceptedButtons: Qt.RightButton
+                                onTapped: function(eventPoint, button) {
+                                    messageMenu.messageBody = modelData.body
+                                    messageMenu.canDownload = modelData.type === "file"
+                                        && modelData.attachmentId.length > 0
+                                    messageMenu.attachmentId = modelData.attachmentId || ""
+                                    messageMenu.popup()
+                                }
+                            }
+                        }
+                    }
+
+                    Column {
+                        anchors.centerIn: parent
+                        spacing: root.space2
+                        visible: chatPage.messageSearchOpen
+                            && messageSearch.text.length > 0
+                            && root.messageMatchCount(appController.messages,
+                                messageSearch.text) === 0
+                        Text {
+                            anchors.horizontalCenter: parent.horizontalCenter
+                            text: "没有找到相关消息"
+                            color: root.textMain
+                            font.pixelSize: 15
+                            font.weight: root.titleWeight
+                        }
+                        Text {
+                            anchors.horizontalCenter: parent.horizontalCenter
+                            text: "换一个关键词试试"
+                            color: root.textMuted
+                            font.pixelSize: 12
+                            font.weight: root.bodyWeight
                         }
                     }
 
@@ -892,28 +1395,33 @@ ApplicationWindow {
 
                 Rectangle {
                     Layout.fillWidth: true
-                    Layout.preferredHeight: root.emojiOpen ? 182 : 142
+                    Layout.preferredHeight: root.emojiOpen ? 200 : 160
                     color: root.panel
                     border.color: root.line
 
                     ColumnLayout {
                         anchors.fill: parent
-                        anchors.margins: 12
-                        spacing: 8
+                        anchors.margins: root.space3
+                        spacing: root.space2
 
                         Flow {
                             visible: root.emojiOpen
                             Layout.fillWidth: true
-                            height: visible ? 36 : 0
-                            spacing: 7
+                            Layout.preferredHeight: visible ? 40 : 0
+                            spacing: root.space2
                             Repeater {
                                 model: ["😀", "😂", "🥰", "😎", "👍", "🎉", "❤️", "🙏"]
                                 delegate: Button {
-                                    width: 34
-                                    height: 34
+                                    id: emojiButton
+                                    width: 40
+                                    height: 40
                                     text: modelData
                                     font.pixelSize: 18
-                                    background: Rectangle { radius: 9; color: parent.hovered ? root.panelAlt : "transparent" }
+                                    background: Rectangle {
+                                        radius: root.radiusControl
+                                        color: emojiButton.hovered
+                                            ? root.panelAlt : "transparent"
+                                    }
                                     onClicked: composer.insert(composer.cursorPosition, modelData)
                                 }
                             }
@@ -922,37 +1430,47 @@ ApplicationWindow {
                         RowLayout {
                             Layout.fillWidth: true
                             Layout.fillHeight: true
-                            spacing: 10
+                            spacing: root.space2
 
                             Button {
+                                id: attachmentButton
                                 text: "＋"
-                                width: 40
+                                Layout.preferredWidth: 40
                                 Layout.alignment: Qt.AlignBottom
                                 enabled: !appController.fileTransferActive
                                 contentItem: Text {
-                                    text: parent.text
+                                    text: attachmentButton.text
                                     color: root.textMuted
                                     font.pixelSize: 21
                                     horizontalAlignment: Text.AlignHCenter
                                     verticalAlignment: Text.AlignVCenter
                                 }
-                                background: Rectangle { radius: 10; color: parent.hovered ? root.panelAlt : "transparent" }
+                                background: Rectangle {
+                                    radius: root.radiusControl
+                                    color: attachmentButton.hovered
+                                        ? root.panelAlt : "transparent"
+                                }
                                 onClicked: attachmentDialog.open()
                                 ToolTip.visible: hovered
-                                ToolTip.text: "发送文件（最大 100 MB）"
+                                ToolTip.text: "发送文件（最大 6 MB）"
                             }
                             Button {
+                                id: emojiToggleButton
                                 text: "☺"
-                                width: 40
+                                Layout.preferredWidth: 40
                                 Layout.alignment: Qt.AlignBottom
                                 contentItem: Text {
-                                    text: parent.text
+                                    text: emojiToggleButton.text
                                     color: root.textMuted
                                     font.pixelSize: 20
                                     horizontalAlignment: Text.AlignHCenter
                                     verticalAlignment: Text.AlignVCenter
                                 }
-                                background: Rectangle { radius: 10; color: parent.hovered ? root.panelAlt : "transparent" }
+                                background: Rectangle {
+                                    radius: root.radiusControl
+                                    color: emojiToggleButton.hovered
+                                        ? root.panelAlt : "transparent"
+                                }
                                 onClicked: root.emojiOpen = !root.emojiOpen
                                 ToolTip.visible: hovered
                                 ToolTip.text: "表情"
@@ -963,40 +1481,88 @@ ApplicationWindow {
                                 Layout.fillHeight: true
                                 TextArea {
                                     id: composer
+                                    property string draftAccount: ""
                                     placeholderText: appController.enterToSend
                                         ? "输入消息，Enter 发送，Shift+Enter 换行"
                                         : "输入消息，Ctrl+Enter 发送"
                                     color: root.textMain
                                     placeholderTextColor: root.textMuted
                                     font.pixelSize: 14
+                                    font.weight: root.bodyWeight
                                     wrapMode: TextArea.Wrap
                                     background: Rectangle {
                                         color: root.panelAlt
-                                        radius: 12
+                                        radius: root.radiusControl
                                         border.color: composer.activeFocus ? root.accent : root.line
                                     }
+                                    onTextChanged: root.setDraft(draftAccount, text)
                                     Keys.onPressed: function(event) {
                                         let enter = event.key === Qt.Key_Return || event.key === Qt.Key_Enter
                                         let shouldSend = appController.enterToSend
                                             ? enter && !(event.modifiers & Qt.ShiftModifier)
                                             : enter && (event.modifiers & Qt.ControlModifier)
                                         if (shouldSend) {
-                                            appController.sendMessage(text)
-                                            text = ""
+                                            if (appController.sendMessage(text)) {
+                                                text = ""
+                                                root.setDraft(draftAccount, "")
+                                            }
                                             event.accepted = true
                                         }
+                                    }
+
+                                    Connections {
+                                        target: appController
+                                        function onSelectedPeerChanged() {
+                                            composer.draftAccount =
+                                                appController.selectedPeerAccount
+                                            composer.text = root.draftFor(
+                                                composer.draftAccount)
+                                            Qt.callLater(function() {
+                                                composer.cursorPosition =
+                                                    composer.length
+                                            })
+                                        }
+                                    }
+
+                                    Component.onCompleted: {
+                                        draftAccount = appController.selectedPeerAccount
+                                        text = root.draftFor(draftAccount)
                                     }
                                 }
                             }
                             PrimaryButton {
                                 text: "发送"
-                                width: 74
+                                Layout.preferredWidth: 74
                                 Layout.alignment: Qt.AlignBottom
+                                enabled: composer.text.trim().length > 0
+                                    && composer.length <= 4000
                                 onClicked: {
-                                    appController.sendMessage(composer.text)
-                                    composer.text = ""
-                                    composer.forceActiveFocus()
+                                    if (appController.sendMessage(composer.text)) {
+                                        composer.text = ""
+                                        root.setDraft(composer.draftAccount, "")
+                                        composer.forceActiveFocus()
+                                    }
                                 }
+                            }
+                        }
+                        RowLayout {
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: 16
+                            Text {
+                                text: root.draftFor(appController.selectedPeerAccount).length
+                                    ? "草稿已保留"
+                                    : "消息将同步到所有登录会话"
+                                color: root.textMuted
+                                font.pixelSize: 10
+                                font.weight: root.bodyWeight
+                            }
+                            Item { Layout.fillWidth: true }
+                            Text {
+                                text: composer.length + " / 4000"
+                                color: composer.length > 4000
+                                    ? root.danger : root.textMuted
+                                font.pixelSize: 10
+                                font.weight: root.bodyWeight
                             }
                         }
                         RowLayout {
@@ -1007,6 +1573,7 @@ ApplicationWindow {
                                 text: appController.fileTransferLabel
                                 color: root.textMuted
                                 font.pixelSize: 10
+                                font.weight: root.bodyWeight
                             }
                             ProgressBar {
                                 Layout.fillWidth: true
@@ -1016,9 +1583,26 @@ ApplicationWindow {
                                 text: Math.round(appController.fileTransferProgress * 100) + "%"
                                 color: root.textMuted
                                 font.pixelSize: 10
+                                font.weight: root.bodyWeight
                             }
                         }
                     }
+                }
+            }
+
+            Shortcut {
+                sequence: StandardKey.Find
+                onActivated: {
+                    chatPage.messageSearchOpen = true
+                    Qt.callLater(function() { messageSearch.forceActiveFocus() })
+                }
+            }
+            Shortcut {
+                sequence: "Escape"
+                enabled: chatPage.messageSearchOpen
+                onActivated: {
+                    messageSearch.clear()
+                    chatPage.messageSearchOpen = false
                 }
             }
         }
@@ -1036,41 +1620,42 @@ ApplicationWindow {
         Item {
             Column {
                 anchors.centerIn: parent
-                spacing: 12
+                spacing: root.space3
                 visible: !appController.selectedPeerAccount.length
                 Text {
                     anchors.horizontalCenter: parent.horizontalCenter
                     text: "联系人"
                     color: root.textMain
                     font.pixelSize: 24
-                    font.weight: Font.Bold
+                    font.weight: root.titleWeight
                 }
                 Text {
                     anchors.horizontalCenter: parent.horizontalCenter
                     text: "从左侧选择联系人，或添加新的好友"
                     color: root.textMuted
                     font.pixelSize: 14
+                    font.weight: root.bodyWeight
                 }
                 PrimaryButton {
                     anchors.horizontalCenter: parent.horizontalCenter
-                    width: 130
+                    width: 136
                     text: "添加好友"
                     onClicked: addFriendDialog.open()
                 }
             }
 
-            Rectangle {
+            ElevatedSurface {
                 visible: appController.selectedPeerAccount.length > 0
                 anchors.centerIn: parent
-                width: 440
-                height: 420
-                radius: 24
+                width: 448
+                height: 424
+                radius: root.radiusPanel
                 color: root.panel
                 border.color: root.line
                 Column {
                     anchors.fill: parent
-                    anchors.margins: 32
-                    spacing: 18
+                    anchors.margins: root.space5
+                    spacing: root.space4
                     Avatar {
                         anchors.horizontalCenter: parent.horizontalCenter
                         avatarSize: 88
@@ -1082,18 +1667,19 @@ ApplicationWindow {
                         text: appController.selectedPeerName
                         color: root.textMain
                         font.pixelSize: 24
-                        font.weight: Font.Bold
+                        font.weight: root.titleWeight
                     }
                     Text {
                         anchors.horizontalCenter: parent.horizontalCenter
                         text: "账号 " + appController.selectedPeerAccount
                         color: root.textMuted
                         font.pixelSize: 13
+                        font.weight: root.bodyWeight
                     }
                     Rectangle { width: parent.width; height: 1; color: root.line }
                     Row {
                         anchors.horizontalCenter: parent.horizontalCenter
-                        spacing: 10
+                        spacing: root.space2
                         PrimaryButton {
                             width: 132
                             text: "发送消息"
@@ -1116,35 +1702,38 @@ ApplicationWindow {
         Item {
             ColumnLayout {
                 anchors.fill: parent
-                anchors.margins: 28
-                spacing: 16
+                anchors.margins: root.space5
+                spacing: root.space3
 
                 Text {
                     text: "好友申请"
                     color: root.textMain
                     font.pixelSize: 24
-                    font.weight: Font.Bold
+                    font.weight: root.titleWeight
                 }
                 Text {
                     text: "接受后，双方联系人列表会自动更新。"
                     color: root.textMuted
                     font.pixelSize: 13
+                    font.weight: root.bodyWeight
                 }
                 ListView {
+                    id: requestsList
                     Layout.fillWidth: true
                     Layout.fillHeight: true
+                    Layout.topMargin: root.space3
                     clip: true
-                    spacing: 10
+                    spacing: root.space2
                     model: appController.requests
                     delegate: Rectangle {
                         width: ListView.view.width
                         height: 88
-                        radius: 16
+                        radius: root.radiusControl
                         color: root.panel
                         border.color: root.line
                         Avatar {
                             anchors.left: parent.left
-                            anchors.leftMargin: 16
+                            anchors.leftMargin: root.space3
                             anchors.verticalCenter: parent.verticalCenter
                             label: modelData.initial
                             online: modelData.online
@@ -1153,13 +1742,23 @@ ApplicationWindow {
                             anchors.left: parent.left
                             anchors.leftMargin: 76
                             anchors.verticalCenter: parent.verticalCenter
-                            spacing: 4
-                            Text { text: modelData.name; color: root.textMain; font.pixelSize: 15; font.bold: true }
-                            Text { text: modelData.account + " · " + modelData.signature; color: root.textMuted; font.pixelSize: 12 }
+                            spacing: root.space1
+                            Text {
+                                text: modelData.name
+                                color: root.textMain
+                                font.pixelSize: 15
+                                font.weight: root.titleWeight
+                            }
+                            Text {
+                                text: modelData.account + " · " + modelData.signature
+                                color: root.textMuted
+                                font.pixelSize: 12
+                                font.weight: root.bodyWeight
+                            }
                         }
                         Row {
                             anchors.right: parent.right
-                            anchors.rightMargin: 16
+                            anchors.rightMargin: root.space3
                             anchors.verticalCenter: parent.verticalCenter
                             spacing: 8
                             GhostButton {
@@ -1177,12 +1776,13 @@ ApplicationWindow {
                     }
                     footer: Item {
                         width: parent.width
-                        height: parent.parent.count === 0 ? 200 : 0
+                        height: requestsList.count === 0 ? 200 : 0
                         Text {
                             anchors.centerIn: parent
                             text: "没有待处理的好友申请"
                             color: root.textMuted
                             font.pixelSize: 14
+                            font.weight: root.bodyWeight
                         }
                     }
                 }
@@ -1192,68 +1792,222 @@ ApplicationWindow {
 
     Component {
         id: settingsComponent
-        ScrollView {
-            id: settingsScroll
-            contentWidth: availableWidth
+        Item {
+            id: settingsPage
+
             ListView {
                 id: settingsView
-                width: settingsScroll.availableWidth
-                height: contentHeight + 56
-                interactive: false
-                spacing: 14
+                anchors.fill: parent
+                clip: true
+                interactive: true
+                boundsBehavior: Flickable.StopAtBounds
+                flickDeceleration: 2600
+                spacing: root.space5
                 model: [
-                    {title: "外观", subtitle: "主题与信息密度", kind: "appearance"},
-                    {title: "聊天", subtitle: "消息发送方式", kind: "chat"},
-                    {title: "通知", subtitle: "控制新消息提醒", kind: "notifications"},
-                    {title: "隐私", subtitle: "在线状态与服务端数据", kind: "privacy"},
-                    {title: "网络", subtitle: "服务器地址与通信端口", kind: "network"},
-                    {title: "账号", subtitle: "个人资料与切换账号", kind: "account"}
+                    {title: "外观", subtitle: "主题与信息密度", kind: "appearance", badge: "外"},
+                    {title: "聊天", subtitle: "消息发送方式", kind: "chat", badge: "聊"},
+                    {title: "通知", subtitle: "控制新消息提醒", kind: "notifications", badge: "通"},
+                    {title: "隐私", subtitle: "在线状态与服务端数据", kind: "privacy", badge: "隐"},
+                    {title: "网络", subtitle: "服务器地址与通信端口", kind: "network", badge: "网"},
+                    {title: "账号", subtitle: "个人资料与切换账号", kind: "account", badge: "账"}
                 ]
-                header: Item { width: 1; height: 20 }
-                delegate: Rectangle {
-                    width: Math.min(720, settingsView.width - 56)
-                    height: modelData.kind === "appearance" ? 150
-                        : modelData.kind === "network" ? 218
-                        : modelData.kind === "account" ? 180 : 126
-                    x: (settingsView.width - width) / 2
-                    radius: 20
-                    color: root.panel
-                    border.color: root.line
 
-                    ColumnLayout {
-                        anchors.fill: parent
-                        anchors.margins: 20
-                        spacing: 8
+                function scrollToSection(index) {
+                    root.settingsCategory = index
+                    settingsScrollAnimation.stop()
+                    const previousPosition = contentY
+                    positionViewAtIndex(index, ListView.Beginning)
+                    const targetPosition = contentY
+                    contentY = previousPosition
+                    settingsScrollAnimation.from = previousPosition
+                    settingsScrollAnimation.to = targetPosition
+                    settingsScrollAnimation.start()
+                }
+
+                function updateVisibleCategory() {
+                    const selected = indexAt(width / 2,
+                        contentY + Math.min(160, height * 0.28))
+                    if (selected >= 0)
+                        root.settingsCategory = selected
+                }
+
+                onMovementEnded: updateVisibleCategory()
+                onFlickEnded: updateVisibleCategory()
+
+                NumberAnimation {
+                    id: settingsScrollAnimation
+                    target: settingsView
+                    property: "contentY"
+                    duration: 220
+                    easing.type: Easing.OutCubic
+                }
+
+                Connections {
+                    target: root
+                    function onSettingsSectionRequested(index) {
+                        settingsView.scrollToSection(index)
+                    }
+                }
+
+                ScrollBar.vertical: ScrollBar {
+                    policy: ScrollBar.AsNeeded
+                    width: 8
+                }
+
+                header: Item {
+                    id: settingsHeader
+                    width: settingsView.width
+                    height: 120
+
+                    Column {
+                        width: Math.min(768, parent.width - 64)
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        anchors.top: parent.top
+                        anchors.topMargin: root.space5
+                        spacing: root.space1
+
                         Text {
-                            text: modelData.title
+                            text: "偏好设置"
                             color: root.textMain
-                            font.pixelSize: 17
-                            font.weight: Font.Bold
+                            font.pixelSize: 24
+                            font.weight: root.titleWeight
                         }
                         Text {
-                            text: modelData.subtitle
+                            text: "所有更改都会自动保存在这台设备上"
                             color: root.textMuted
                             font.pixelSize: 12
+                            font.weight: root.bodyWeight
+                        }
+                    }
+                }
+                footer: Item {
+                    width: settingsView.width
+                    height: root.space5
+                }
+                delegate: Item {
+                    width: settingsView.width
+                    height: modelData.kind === "appearance" ? 192
+                        : modelData.kind === "network" ? 240
+                        : modelData.kind === "account" ? 192 : 136
+
+                    ElevatedSurface {
+                        width: Math.min(768, parent.width - 64)
+                        height: parent.height
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        radius: root.radiusPanel
+                        color: root.panel
+                        border.color: root.line
+
+                        ColumnLayout {
+                            anchors.fill: parent
+                            anchors.margins: root.space4
+                            spacing: root.space2
+                            RowLayout {
+                            Layout.fillWidth: true
+                            spacing: root.space3
+                            Rectangle {
+                                Layout.preferredWidth: 40
+                                Layout.preferredHeight: 40
+                                radius: root.radiusControl
+                                color: root.accentSoft
+                                Text {
+                                    anchors.centerIn: parent
+                                    text: modelData.badge
+                                    color: root.accent
+                                    font.pixelSize: 14
+                                    font.weight: root.titleWeight
+                                }
+                            }
+                            ColumnLayout {
+                                spacing: root.space1
+                                Text {
+                                    text: modelData.title
+                                    color: root.textMain
+                                    font.pixelSize: 17
+                                    font.weight: root.titleWeight
+                                }
+                                Text {
+                                    text: modelData.subtitle
+                                    color: root.textMuted
+                                    font.pixelSize: 12
+                                    font.weight: root.bodyWeight
+                                }
+                            }
+                            Item { Layout.fillWidth: true }
                         }
 
                         RowLayout {
                             visible: modelData.kind === "appearance"
                             Layout.fillWidth: true
-                            Layout.topMargin: 8
-                            Text { text: "主题"; color: root.textMain; font.pixelSize: 13 }
+                            Layout.topMargin: root.space2
+                            Text {
+                                text: "主题"
+                                color: root.textMain
+                                font.pixelSize: 13
+                                font.weight: root.bodyWeight
+                            }
                             Item { Layout.fillWidth: true }
-                            ComboBox {
-                                model: ["浅色", "深色", "跟随系统"]
-                                currentIndex: appController.theme === "light" ? 0 : appController.theme === "dark" ? 1 : 2
-                                onActivated: appController.theme = ["light", "dark", "system"][currentIndex]
+                            Rectangle {
+                                Layout.preferredWidth: 300
+                                Layout.preferredHeight: 40
+                                radius: root.radiusControl
+                                color: root.panelAlt
+                                border.color: root.line
+
+                                RowLayout {
+                                    anchors.fill: parent
+                                    anchors.margins: root.space1
+                                    spacing: root.space1
+
+                                    Repeater {
+                                        model: [
+                                            {label: "浅色", value: "light"},
+                                            {label: "深色", value: "dark"},
+                                            {label: "跟随系统", value: "system"}
+                                        ]
+                                        delegate: Rectangle {
+                                            required property var modelData
+                                            Layout.fillWidth: true
+                                            Layout.fillHeight: true
+                                            radius: 8
+                                            color: appController.theme === modelData.value
+                                                ? root.accent : themeMouse.containsMouse
+                                                    ? root.accentSoft : "transparent"
+                                            Behavior on color {
+                                                ColorAnimation { duration: 160 }
+                                            }
+                                            Text {
+                                                anchors.centerIn: parent
+                                                text: modelData.label
+                                                color: appController.theme === modelData.value
+                                                    ? root.accentText : root.textMain
+                                                font.pixelSize: 12
+                                                font.weight: appController.theme === modelData.value
+                                                    ? root.titleWeight : root.bodyWeight
+                                            }
+                                            MouseArea {
+                                                id: themeMouse
+                                                anchors.fill: parent
+                                                hoverEnabled: true
+                                                cursorShape: Qt.PointingHandCursor
+                                                onClicked: appController.theme = modelData.value
+                                            }
+                                        }
+                                    }
+                                }
                             }
                         }
                         RowLayout {
                             visible: modelData.kind === "appearance"
                             Layout.fillWidth: true
-                            Text { text: "紧凑列表"; color: root.textMain; font.pixelSize: 13 }
+                            Text {
+                                text: "紧凑列表"
+                                color: root.textMain
+                                font.pixelSize: 13
+                                font.weight: root.bodyWeight
+                            }
                             Item { Layout.fillWidth: true }
-                            Switch {
+                            AppSwitch {
                                 checked: appController.compactMode
                                 onToggled: appController.compactMode = checked
                             }
@@ -1262,17 +2016,23 @@ ApplicationWindow {
                         RowLayout {
                             visible: modelData.kind === "chat"
                             Layout.fillWidth: true
-                            Layout.topMargin: 8
+                            Layout.topMargin: root.space2
                             ColumnLayout {
-                                Text { text: "Enter 发送"; color: root.textMain; font.pixelSize: 13 }
+                                Text {
+                                    text: "Enter 发送"
+                                    color: root.textMain
+                                    font.pixelSize: 13
+                                    font.weight: root.bodyWeight
+                                }
                                 Text {
                                     text: appController.enterToSend ? "Shift+Enter 换行" : "Ctrl+Enter 发送"
                                     color: root.textMuted
                                     font.pixelSize: 11
+                                    font.weight: root.bodyWeight
                                 }
                             }
                             Item { Layout.fillWidth: true }
-                            Switch {
+                            AppSwitch {
                                 checked: appController.enterToSend
                                 onToggled: appController.enterToSend = checked
                             }
@@ -1281,13 +2041,23 @@ ApplicationWindow {
                         RowLayout {
                             visible: modelData.kind === "notifications"
                             Layout.fillWidth: true
-                            Layout.topMargin: 8
+                            Layout.topMargin: root.space2
                             ColumnLayout {
-                                Text { text: "新消息与好友申请提醒"; color: root.textMain; font.pixelSize: 13 }
-                                Text { text: "关闭后仍会保留未读数量"; color: root.textMuted; font.pixelSize: 11 }
+                                Text {
+                                    text: "新消息与好友申请提醒"
+                                    color: root.textMain
+                                    font.pixelSize: 13
+                                    font.weight: root.bodyWeight
+                                }
+                                Text {
+                                    text: "关闭后仍会保留未读数量"
+                                    color: root.textMuted
+                                    font.pixelSize: 11
+                                    font.weight: root.bodyWeight
+                                }
                             }
                             Item { Layout.fillWidth: true }
-                            Switch {
+                            AppSwitch {
                                 checked: appController.notificationsEnabled
                                 onToggled: appController.notificationsEnabled = checked
                             }
@@ -1296,13 +2066,23 @@ ApplicationWindow {
                         RowLayout {
                             visible: modelData.kind === "privacy"
                             Layout.fillWidth: true
-                            Layout.topMargin: 8
+                            Layout.topMargin: root.space2
                             ColumnLayout {
-                                Text { text: "显示在线状态"; color: root.textMain; font.pixelSize: 13 }
-                                Text { text: "控制本机界面是否展示在线标记"; color: root.textMuted; font.pixelSize: 11 }
+                                Text {
+                                    text: "显示在线状态"
+                                    color: root.textMain
+                                    font.pixelSize: 13
+                                    font.weight: root.bodyWeight
+                                }
+                                Text {
+                                    text: "控制本机界面是否展示在线标记"
+                                    color: root.textMuted
+                                    font.pixelSize: 11
+                                    font.weight: root.bodyWeight
+                                }
                             }
                             Item { Layout.fillWidth: true }
-                            Switch {
+                            AppSwitch {
                                 checked: appController.showOnlineStatus
                                 onToggled: appController.showOnlineStatus = checked
                             }
@@ -1311,8 +2091,8 @@ ApplicationWindow {
                         ColumnLayout {
                             visible: modelData.kind === "network"
                             Layout.fillWidth: true
-                            Layout.topMargin: 6
-                            spacing: 8
+                            Layout.topMargin: root.space2
+                            spacing: root.space2
                             RowLayout {
                                 Layout.fillWidth: true
                                 AppTextField {
@@ -1345,9 +2125,10 @@ ApplicationWindow {
                                         : "未连接；保存后会立即重连"
                                     color: appController.connected ? root.good : root.textMuted
                                     font.pixelSize: 11
+                                    font.weight: root.bodyWeight
                                 }
                                 PrimaryButton {
-                                    width: 104
+                                    Layout.preferredWidth: 112
                                     text: "保存并重连"
                                     onClicked: appController.applyNetworkSettings(
                                         serverHostField.text,
@@ -1359,13 +2140,14 @@ ApplicationWindow {
                                 text: "配置写入程序目录的 rubbagechat.ini；环境变量配置优先。"
                                 color: root.textMuted
                                 font.pixelSize: 11
+                                font.weight: root.bodyWeight
                             }
                         }
 
                         RowLayout {
                             visible: modelData.kind === "account"
                             Layout.fillWidth: true
-                            Layout.topMargin: 8
+                            Layout.topMargin: root.space2
                             GhostButton {
                                 Layout.fillWidth: true
                                 text: "编辑个人资料"
@@ -1388,8 +2170,10 @@ ApplicationWindow {
                                 + (appController.connected ? "服务器已连接" : "服务器重连中")
                             color: root.textMuted
                             font.pixelSize: 11
+                            font.weight: root.bodyWeight
                         }
                     }
+                }
                 }
             }
         }
@@ -1413,20 +2197,48 @@ ApplicationWindow {
         }
     }
 
+    Menu {
+        id: messageMenu
+        property string messageBody: ""
+        property bool canDownload: false
+        property string attachmentId: ""
+        MenuItem {
+            text: "复制消息"
+            enabled: messageMenu.messageBody.length > 0
+            onTriggered: appController.copyText(messageMenu.messageBody)
+        }
+        MenuItem {
+            visible: messageMenu.canDownload
+            text: "下载附件"
+            onTriggered: appController.downloadAttachment(messageMenu.attachmentId)
+        }
+    }
+
     Dialog {
         id: addFriendDialog
-        width: 430
-        height: 350
+        width: 432
+        height: 384
         anchors.centerIn: parent
         modal: true
         title: "添加好友"
         standardButtons: Dialog.NoButton
-        background: Rectangle { radius: 20; color: root.panel; border.color: root.line }
+        padding: root.space4
+        header: DialogHeader { label: addFriendDialog.title }
+        background: ElevatedSurface {
+            radius: root.radiusPanel
+            color: root.panel
+            border.color: root.line
+        }
 
         ColumnLayout {
             anchors.fill: parent
-            spacing: 14
-            Text { text: "通过 9 位账号查找用户"; color: root.textMuted; font.pixelSize: 13 }
+            spacing: root.space3
+            Text {
+                text: "通过 9 位账号查找用户"
+                color: root.textMuted
+                font.pixelSize: 13
+                font.weight: root.bodyWeight
+            }
             RowLayout {
                 Layout.fillWidth: true
                 AppTextField {
@@ -1438,7 +2250,7 @@ ApplicationWindow {
                     onAccepted: appController.searchUser(text)
                 }
                 PrimaryButton {
-                    width: 76
+                    Layout.preferredWidth: 80
                     text: "搜索"
                     onClicked: appController.searchUser(friendSearchField.text)
                 }
@@ -1447,30 +2259,41 @@ ApplicationWindow {
                 visible: appController.searchResult.account !== undefined
                     && appController.searchResult.account !== ""
                 Layout.fillWidth: true
-                height: 112
-                radius: 16
+                Layout.preferredHeight: 120
+                radius: root.radiusControl
                 color: root.panelAlt
                 RowLayout {
                     anchors.fill: parent
-                    anchors.margins: 14
+                    anchors.margins: root.space3
                     Avatar {
                         label: appController.searchResult.initial || ""
                         online: appController.searchResult.online || false
                     }
                     ColumnLayout {
                         Layout.fillWidth: true
-                        Text { text: appController.searchResult.name || ""; color: root.textMain; font.pixelSize: 15; font.bold: true }
-                        Text { text: appController.searchResult.account || ""; color: root.textMuted; font.pixelSize: 12 }
+                        Text {
+                            text: appController.searchResult.name || ""
+                            color: root.textMain
+                            font.pixelSize: 15
+                            font.weight: root.titleWeight
+                        }
+                        Text {
+                            text: appController.searchResult.account || ""
+                            color: root.textMuted
+                            font.pixelSize: 12
+                            font.weight: root.bodyWeight
+                        }
                         Text {
                             Layout.fillWidth: true
                             text: appController.searchResult.signature || ""
                             color: root.textMuted
                             font.pixelSize: 11
+                            font.weight: root.bodyWeight
                             elide: Text.ElideRight
                         }
                     }
                     PrimaryButton {
-                        width: 84
+                        Layout.preferredWidth: 88
                         text: appController.searchResult.isFriend ? "已是好友" : "添加"
                         enabled: !appController.searchResult.isFriend
                         onClicked: appController.sendFriendRequest(appController.searchResult.account)
@@ -1480,7 +2303,7 @@ ApplicationWindow {
             Item { Layout.fillHeight: true }
             GhostButton {
                 Layout.alignment: Qt.AlignRight
-                width: 80
+                Layout.preferredWidth: 80
                 text: "关闭"
                 onClicked: addFriendDialog.close()
             }
@@ -1489,20 +2312,26 @@ ApplicationWindow {
 
     Dialog {
         id: profileDialog
-        width: 430
-        height: 360
+        width: 432
+        height: 400
         anchors.centerIn: parent
         modal: true
         title: "个人资料"
         standardButtons: Dialog.NoButton
+        padding: root.space4
+        header: DialogHeader { label: profileDialog.title }
         onOpened: {
             profileName.text = appController.currentUserName
             profileSignature.text = appController.currentUserSignature
         }
-        background: Rectangle { radius: 20; color: root.panel; border.color: root.line }
+        background: ElevatedSurface {
+            radius: root.radiusPanel
+            color: root.panel
+            border.color: root.line
+        }
         ColumnLayout {
             anchors.fill: parent
-            spacing: 12
+            spacing: root.space3
             Avatar {
                 Layout.alignment: Qt.AlignHCenter
                 avatarSize: 70
@@ -1525,6 +2354,7 @@ ApplicationWindow {
                 text: "账号 " + appController.currentUserAccount
                 color: root.textMuted
                 font.pixelSize: 11
+                font.weight: root.bodyWeight
             }
             Item { Layout.fillHeight: true }
             RowLayout {
@@ -1544,20 +2374,29 @@ ApplicationWindow {
 
     Dialog {
         id: switchAccountDialog
+        width: 432
+        height: 224
         anchors.centerIn: parent
         modal: true
         title: "切换账号"
         standardButtons: Dialog.NoButton
-        background: Rectangle { radius: 18; color: root.panel; border.color: root.line }
+        padding: root.space4
+        header: DialogHeader { label: switchAccountDialog.title }
+        background: ElevatedSurface {
+            radius: root.radiusPanel
+            color: root.panel
+            border.color: root.line
+        }
         ColumnLayout {
             anchors.fill: parent
-            spacing: 14
+            spacing: root.space3
             Text {
                 Layout.fillWidth: true
                 text: "将断开当前会话并返回登录界面，服务端聊天记录不会删除。"
                 wrapMode: Text.WordWrap
                 color: root.textMuted
                 font.pixelSize: 13
+                font.weight: root.bodyWeight
             }
             RowLayout {
                 Layout.fillWidth: true
@@ -1576,25 +2415,32 @@ ApplicationWindow {
 
     Dialog {
         id: passwordDialog
-        width: 410
-        height: 390
+        width: 416
+        height: 424
         anchors.centerIn: parent
         modal: true
         title: "修改密码"
         standardButtons: Dialog.NoButton
+        padding: root.space4
+        header: DialogHeader { label: passwordDialog.title }
         onClosed: {
             currentPassword.text = ""
             newPassword.text = ""
             confirmPassword.text = ""
         }
-        background: Rectangle { radius: 18; color: root.panel; border.color: root.line }
+        background: ElevatedSurface {
+            radius: root.radiusPanel
+            color: root.panel
+            border.color: root.line
+        }
         ColumnLayout {
             anchors.fill: parent
-            spacing: 12
+            spacing: root.space3
             Text {
                 text: "修改后，下次登录请使用新密码。"
                 color: root.textMuted
                 font.pixelSize: 12
+                font.weight: root.bodyWeight
             }
             AppTextField {
                 id: currentPassword
@@ -1632,19 +2478,28 @@ ApplicationWindow {
 
     Dialog {
         id: removeFriendDialog
+        width: 432
+        height: 224
         anchors.centerIn: parent
         modal: true
         title: "删除联系人"
         standardButtons: Dialog.NoButton
-        background: Rectangle { radius: 18; color: root.panel; border.color: root.line }
+        padding: root.space4
+        header: DialogHeader { label: removeFriendDialog.title }
+        background: ElevatedSurface {
+            radius: root.radiusPanel
+            color: root.panel
+            border.color: root.line
+        }
         ColumnLayout {
             anchors.fill: parent
-            spacing: 14
+            spacing: root.space3
             Text {
                 Layout.fillWidth: true
                 text: "确定从双方联系人列表中删除 " + appController.selectedPeerName + "？既有聊天记录仍保留在服务端。"
                 wrapMode: Text.WordWrap
                 color: root.textMuted
+                font.weight: root.bodyWeight
             }
             RowLayout {
                 Layout.fillWidth: true
@@ -1664,19 +2519,28 @@ ApplicationWindow {
 
     Dialog {
         id: clearConversationDialog
+        width: 432
+        height: 224
         anchors.centerIn: parent
         modal: true
         title: "清空聊天记录"
         standardButtons: Dialog.NoButton
-        background: Rectangle { radius: 18; color: root.panel; border.color: root.line }
+        padding: root.space4
+        header: DialogHeader { label: clearConversationDialog.title }
+        background: ElevatedSurface {
+            radius: root.radiusPanel
+            color: root.panel
+            border.color: root.line
+        }
         ColumnLayout {
             anchors.fill: parent
-            spacing: 14
+            spacing: root.space3
             Text {
                 Layout.fillWidth: true
                 text: "该操作会在服务端隐藏当前账号此前的会话记录，且无法撤销。"
                 wrapMode: Text.WordWrap
                 color: root.textMuted
+                font.weight: root.bodyWeight
             }
             RowLayout {
                 Layout.fillWidth: true
@@ -1694,28 +2558,42 @@ ApplicationWindow {
         }
     }
 
-    Rectangle {
+    ElevatedSurface {
         id: toast
-        visible: appController.toastMessage.length > 0
+        visible: opacity > 0
+        opacity: appController.toastMessage.length > 0 ? 1 : 0
         z: 1000
         width: Math.min(520, toastText.implicitWidth + 56)
         height: 48
-        radius: 14
-        color: appController.toastError ? "#3b2029" : root.dark ? "#26324a" : "#182033"
+        radius: root.radiusControl
+        color: appController.toastError ? root.danger : root.navBg
         anchors.horizontalCenter: parent.horizontalCenter
         anchors.bottom: parent.bottom
-        anchors.bottomMargin: 24
+        anchors.bottomMargin: root.space4
         border.color: appController.toastError ? root.danger : "transparent"
+        transform: Translate {
+            y: toast.opacity > 0.5 ? 0 : 12
+            Behavior on y {
+                NumberAnimation {
+                    duration: 200
+                    easing.type: Easing.OutCubic
+                }
+            }
+        }
+        Behavior on opacity {
+            NumberAnimation { duration: 180 }
+        }
         Text {
             id: toastText
             anchors.centerIn: parent
             text: appController.toastMessage
-            color: "white"
+            color: root.accentText
             font.pixelSize: 13
+            font.weight: root.bodyWeight
         }
         Timer {
             interval: 3200
-            running: toast.visible
+            running: appController.toastMessage.length > 0
             onTriggered: appController.clearToast()
         }
         MouseArea {
