@@ -15,21 +15,23 @@ ApplicationWindow {
     title: "RubbageChat"
 
     readonly property bool dark: appController.effectiveDark
-    readonly property color bg: dark ? "#0b0f17" : "#f7f8fa"
-    readonly property color panel: dark ? "#111827" : "#ffffff"
-    readonly property color panelAlt: dark ? "#18212f" : "#f2f4f7"
-    readonly property color line: dark ? "#263244" : "#e5e7eb"
-    readonly property color textMain: dark ? "#f8fafc" : "#111827"
-    readonly property color textMuted: dark ? "#94a3b8" : "#667085"
-    readonly property color accent: "#4f46e5"
-    readonly property color accentHover: "#4338ca"
-    readonly property color accentSoft: dark ? "#24234a" : "#eef2ff"
-    readonly property color good: "#22c55e"
+    readonly property color bg: dark ? "#0f1115" : "#f6f5f3"
+    readonly property color panel: dark ? "#171a20" : "#ffffff"
+    readonly property color panelAlt: dark ? "#1f232c" : "#f0eeeb"
+    readonly property color line: dark ? "#2c313d" : "#e4e1dc"
+    readonly property color textMain: dark ? "#f6f7f9" : "#1c1f26"
+    readonly property color textMuted: dark ? "#98a0af" : "#6d7280"
+    readonly property color accent: dark ? "#f06a4f" : "#bd3c27"
+    readonly property color accentDeep: "#a83220"
+    readonly property color accentSurface: "#bd3c27"
+    readonly property color accentGlow: "#c94a32"
+    readonly property color accentSoft: dark ? "#35201b" : "#fdeae4"
+    readonly property color good: "#2fbf71"
     readonly property color danger: "#ef4444"
-    readonly property color navBg: dark ? "#090d14" : "#111827"
-    readonly property color navHover: "#1b2638"
-    readonly property color navSelected: "#27344a"
-    readonly property color navMuted: "#94a3b8"
+    readonly property color navBg: dark ? "#0b0d12" : "#15181f"
+    readonly property color navHover: "#1d212b"
+    readonly property color navSelected: "#2b303d"
+    readonly property color navMuted: "#8a92a2"
     readonly property color accentText: "#ffffff"
     readonly property int radiusControl: 12
     readonly property int radiusPanel: 24
@@ -51,6 +53,14 @@ ApplicationWindow {
 
     function normalizedQuery(value) {
         return value.trim().toLowerCase()
+    }
+
+    function avatarHue(seed) {
+        const s = String(seed || "")
+        let h = 0
+        for (let i = 0; i < s.length; ++i)
+            h = (h * 31 + s.charCodeAt(i)) % 3600
+        return (h % 360) / 360
     }
 
     function sidebarMatches(item, query, targetSection) {
@@ -138,12 +148,12 @@ ApplicationWindow {
                 GradientStop {
                     position: 0
                     color: primaryButton.down || primaryButton.hovered
-                        ? root.accentHover : root.accent
+                        ? root.accentDeep : root.accentSurface
                 }
                 GradientStop {
                     position: 1
                     color: primaryButton.down || primaryButton.hovered
-                        ? "#3730a3" : "#6366f1"
+                        ? root.accentSurface : root.accentGlow
                 }
             }
         }
@@ -278,39 +288,142 @@ ApplicationWindow {
     }
 
     component Avatar: Rectangle {
+        id: avatarRoot
         property string label: "O"
+        property string seed: label
         property bool online: false
         property int avatarSize: 44
+        readonly property real hue: root.avatarHue(seed)
         width: avatarSize
         height: avatarSize
         radius: avatarSize / 2
         gradient: Gradient {
             GradientStop {
                 position: 0
-                color: root.dark ? "#312e81" : "#eef2ff"
+                color: Qt.hsla(avatarRoot.hue, 0.62, root.dark ? 0.42 : 0.87, 1)
             }
             GradientStop {
                 position: 1
-                color: root.dark ? "#1e1b4b" : "#e0e7ff"
+                color: Qt.hsla((avatarRoot.hue + 0.07) % 1.0, 0.68,
+                    root.dark ? 0.30 : 0.77, 1)
             }
         }
         Text {
             anchors.centerIn: parent
-            text: parent.label.length ? parent.label.slice(0, 1).toUpperCase() : "O"
-            color: root.accent
-            font.pixelSize: parent.avatarSize * 0.38
+            text: avatarRoot.label.length
+                ? avatarRoot.label.slice(0, 1).toUpperCase() : "O"
+            color: root.dark
+                ? Qt.hsla(avatarRoot.hue, 0.9, 0.82, 1)
+                : Qt.hsla(avatarRoot.hue, 0.8, 0.30, 1)
+            font.pixelSize: avatarRoot.avatarSize * 0.38
             font.weight: root.titleWeight
         }
         Rectangle {
-            visible: parent.online && appController.showOnlineStatus
-            width: Math.max(10, parent.avatarSize * 0.25)
+            visible: avatarRoot.online && appController.showOnlineStatus
+            width: Math.max(10, avatarRoot.avatarSize * 0.25)
             height: width
             radius: width / 2
             color: root.good
             border.color: root.panel
             border.width: 2
-            anchors.right: parent.right
-            anchors.bottom: parent.bottom
+            anchors.right: avatarRoot.right
+            anchors.bottom: avatarRoot.bottom
+        }
+    }
+
+    component NavGlyph: Item {
+        id: glyphRoot
+        property string kind: "chat"
+        property color glyphColor: "#ffffff"
+        property int glyphSize: 20
+        width: glyphSize
+        height: glyphSize
+
+        Canvas {
+            id: glyphCanvas
+            anchors.fill: parent
+            antialiasing: true
+            property color pen: glyphRoot.glyphColor
+            property string shape: glyphRoot.kind
+            property int span: glyphRoot.glyphSize
+            onPenChanged: requestPaint()
+            onShapeChanged: requestPaint()
+            onSpanChanged: requestPaint()
+
+            onPaint: {
+                var ctx = getContext("2d")
+                ctx.reset()
+                ctx.clearRect(0, 0, width, height)
+                ctx.strokeStyle = pen
+                ctx.fillStyle = pen
+                ctx.lineWidth = Math.max(1.4, span * 0.085)
+                ctx.lineCap = "round"
+                ctx.lineJoin = "round"
+                ctx.save()
+                ctx.scale(span / 24, span / 24)
+
+                if (shape === "chat") {
+                    ctx.beginPath()
+                    ctx.moveTo(7.5, 4.5)
+                    ctx.lineTo(16.5, 4.5)
+                    ctx.arcTo(21, 4.5, 21, 9, 4.5)
+                    ctx.lineTo(21, 12.5)
+                    ctx.arcTo(21, 17, 16.5, 17, 4.5)
+                    ctx.lineTo(11, 17)
+                    ctx.lineTo(7.5, 20.5)
+                    ctx.lineTo(7.5, 17)
+                    ctx.arcTo(3, 17, 3, 12.5, 4.5)
+                    ctx.lineTo(3, 9)
+                    ctx.arcTo(3, 4.5, 7.5, 4.5, 4.5)
+                    ctx.closePath()
+                    ctx.stroke()
+                    var dots = [8.2, 12, 15.8]
+                    for (var di = 0; di < dots.length; ++di) {
+                        ctx.beginPath()
+                        ctx.arc(dots[di], 10.8, 1.15, 0, Math.PI * 2)
+                        ctx.fill()
+                    }
+                } else if (shape === "people") {
+                    ctx.beginPath()
+                    ctx.arc(12, 8.2, 3.7, 0, Math.PI * 2)
+                    ctx.stroke()
+                    ctx.beginPath()
+                    ctx.arc(12, 21.6, 6.8, Math.PI * 1.08, Math.PI * 1.92)
+                    ctx.stroke()
+                } else if (shape === "bell") {
+                    ctx.beginPath()
+                    ctx.moveTo(5.2, 16.5)
+                    ctx.lineTo(5.2, 11)
+                    ctx.bezierCurveTo(5.2, 5.8, 8.1, 3.6, 12, 3.6)
+                    ctx.bezierCurveTo(15.9, 3.6, 18.8, 5.8, 18.8, 11)
+                    ctx.lineTo(18.8, 16.5)
+                    ctx.stroke()
+                    ctx.beginPath()
+                    ctx.moveTo(3.6, 16.5)
+                    ctx.lineTo(20.4, 16.5)
+                    ctx.stroke()
+                    ctx.beginPath()
+                    ctx.arc(12, 19.8, 1.5, 0, Math.PI * 2)
+                    ctx.fill()
+                } else if (shape === "gear") {
+                    for (var t = 0; t < 8; ++t) {
+                        var a = t * Math.PI / 4 + Math.PI / 8
+                        ctx.beginPath()
+                        ctx.moveTo(12 + Math.cos(a) * 7.4,
+                            12 + Math.sin(a) * 7.4)
+                        ctx.lineTo(12 + Math.cos(a) * 10.2,
+                            12 + Math.sin(a) * 10.2)
+                        ctx.stroke()
+                    }
+                    ctx.beginPath()
+                    ctx.arc(12, 12, 7.4, 0, Math.PI * 2)
+                    ctx.stroke()
+                    ctx.beginPath()
+                    ctx.arc(12, 12, 3.1, 0, Math.PI * 2)
+                    ctx.stroke()
+                }
+                ctx.restore()
+            }
         }
     }
 
@@ -339,11 +452,11 @@ ApplicationWindow {
                     gradient: Gradient {
                         GradientStop {
                             position: 0
-                            color: root.dark ? "#171638" : "#eef2ff"
+                            color: root.dark ? "#251712" : "#fdeae4"
                         }
                         GradientStop {
                             position: 1
-                            color: root.dark ? root.bg : "#f5f7ff"
+                            color: root.dark ? root.bg : "#faf6f2"
                         }
                     }
 
@@ -356,7 +469,10 @@ ApplicationWindow {
                             width: 64
                             height: 64
                             radius: root.radiusPanel
-                            color: root.accent
+                            gradient: Gradient {
+                                GradientStop { position: 0; color: root.accentSurface }
+                                GradientStop { position: 1; color: root.accentGlow }
+                            }
                             Text {
                                 anchors.centerIn: parent
                                 text: "R"
@@ -391,7 +507,7 @@ ApplicationWindow {
                                         width: 18
                                         height: 18
                                         radius: 9
-                                        color: root.accent
+                                        color: root.accentSurface
                                         Text { anchors.centerIn: parent; text: "✓"; color: root.accentText; font.pixelSize: 11 }
                                     }
                                     Text {
@@ -572,7 +688,10 @@ ApplicationWindow {
                         Layout.preferredWidth: 48
                         Layout.preferredHeight: 48
                         radius: root.radiusControl
-                        color: root.accent
+                        gradient: Gradient {
+                            GradientStop { position: 0; color: root.accentSurface }
+                            GradientStop { position: 1; color: root.accentGlow }
+                        }
                         Text {
                             anchors.centerIn: parent
                             text: appController.currentUserName.slice(0, 1).toUpperCase()
@@ -596,10 +715,10 @@ ApplicationWindow {
 
                     Repeater {
                         model: [
-                            {icon: "●", label: "消息"},
-                            {icon: "人", label: "联系人"},
-                            {icon: "♢", label: "通知"},
-                            {icon: "⚙", label: "设置"}
+                            {kind: "chat", label: "消息"},
+                            {kind: "people", label: "联系人"},
+                            {kind: "bell", label: "通知"},
+                            {kind: "gear", label: "设置"}
                         ]
                         delegate: Item {
                             Layout.alignment: Qt.AlignHCenter
@@ -624,14 +743,14 @@ ApplicationWindow {
                                 anchors.verticalCenter: parent.verticalCenter
                                 color: root.accent
                             }
-                            Text {
+                            NavGlyph {
                                 anchors.horizontalCenter: parent.horizontalCenter
                                 anchors.top: parent.top
                                 anchors.topMargin: root.space2
-                                text: modelData.icon
-                                color: root.section === index
+                                kind: modelData.kind
+                                glyphSize: 20
+                                glyphColor: root.section === index
                                     ? root.accentText : root.navMuted
-                                font.pixelSize: 17
                             }
                             Text {
                                 anchors.horizontalCenter: parent.horizontalCenter
@@ -734,7 +853,7 @@ ApplicationWindow {
                             background: Rectangle {
                                 radius: root.radiusControl
                                 color: addFriendButton.hovered
-                                    ? root.accentHover : root.accent
+                                    ? root.accentDeep : root.accentSurface
                             }
                             onClicked: addFriendDialog.open()
                             ToolTip.visible: hovered
@@ -814,6 +933,7 @@ ApplicationWindow {
                                 anchors.verticalCenter: parent.verticalCenter
                                 avatarSize: appController.compactMode ? 38 : 44
                                 label: modelData.initial
+                                seed: modelData.account
                                 online: modelData.online
                             }
                             Column {
@@ -865,7 +985,8 @@ ApplicationWindow {
                                         width: 20
                                         height: 20
                                         radius: 10
-                                        color: modelData.muted ? root.textMuted : root.accent
+                                        color: modelData.muted
+                                            ? root.textMuted : root.accentSurface
                                         Text {
                                             anchors.centerIn: parent
                                             text: Math.min(99, modelData.unread)
@@ -1002,6 +1123,7 @@ ApplicationWindow {
                                 Avatar {
                                     avatarSize: 48
                                     label: appController.currentUserName
+                                    seed: appController.currentUserAccount
                                     online: appController.connected
                                 }
                                 Column {
@@ -1170,6 +1292,7 @@ ApplicationWindow {
                         Avatar {
                             avatarSize: 42
                             label: appController.selectedPeerName
+                            seed: appController.selectedPeerAccount
                             online: appController.selectedPeerOnline
                         }
                         ColumnLayout {
@@ -1312,11 +1435,11 @@ ApplicationWindow {
                                 orientation: Gradient.Horizontal
                                 GradientStop {
                                     position: 0
-                                    color: modelData.mine ? root.accent : root.panel
+                                    color: modelData.mine ? root.accentSurface : root.panel
                                 }
                                 GradientStop {
                                     position: 1
-                                    color: modelData.mine ? "#6366f1" : root.panel
+                                    color: modelData.mine ? root.accentGlow : root.panel
                                 }
                             }
                             border.color: chatPage.messageSearchOpen
@@ -1719,6 +1842,7 @@ ApplicationWindow {
                         anchors.horizontalCenter: parent.horizontalCenter
                         avatarSize: 88
                         label: appController.selectedPeerName
+                        seed: appController.selectedPeerAccount
                         online: appController.selectedPeerOnline
                     }
                     Text {
@@ -1795,6 +1919,7 @@ ApplicationWindow {
                             anchors.leftMargin: root.space3
                             anchors.verticalCenter: parent.verticalCenter
                             label: modelData.initial
+                            seed: modelData.account
                             online: modelData.online
                         }
                         Column {
@@ -2028,7 +2153,7 @@ ApplicationWindow {
                                             Layout.fillHeight: true
                                             radius: 8
                                             color: appController.theme === modelData.value
-                                                ? root.accent : themeMouse.containsMouse
+                                                ? root.accentSurface : themeMouse.containsMouse
                                                     ? root.accentSoft : "transparent"
                                             Behavior on color {
                                                 ColorAnimation { duration: 160 }
@@ -2303,6 +2428,7 @@ ApplicationWindow {
                     anchors.margins: root.space3
                     Avatar {
                         label: appController.searchResult.initial || ""
+                        seed: appController.searchResult.account || ""
                         online: appController.searchResult.online || false
                     }
                     ColumnLayout {
@@ -2372,6 +2498,7 @@ ApplicationWindow {
                 Layout.alignment: Qt.AlignHCenter
                 avatarSize: 70
                 label: appController.currentUserName
+                seed: appController.currentUserAccount
                 online: appController.connected
             }
             AppTextField {
