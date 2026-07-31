@@ -53,6 +53,7 @@ ApplicationWindow {
     readonly property int bodyWeight: Font.Normal
     property int section: 0
     property int settingsCategory: 0
+    property int totalUnread: 0
     property bool emojiOpen: false
     property var drafts: ({})
     property string editingMessageId: ""
@@ -114,6 +115,21 @@ ApplicationWindow {
             return "已读"
         return "已发送"
     }
+
+    function refreshTotalUnread() {
+        let n = 0
+        const list = appController.conversations
+        for (let i = 0; i < list.length; ++i)
+            n += Number(list[i].unread) || 0
+        root.totalUnread = n
+    }
+
+    Connections {
+        target: appController
+        function onConversationsChanged() { root.refreshTotalUnread() }
+    }
+
+    Component.onCompleted: root.refreshTotalUnread()
 
     function draftFor(account) {
         return drafts[account] || ""
@@ -177,6 +193,17 @@ ApplicationWindow {
                 }
             }
         }
+        Rectangle {
+            z: -1
+            anchors.fill: parent
+            anchors.margins: -3
+            radius: root.radiusControl + 3
+            color: "transparent"
+            border.color: root.accent
+            border.width: 2
+            opacity: primaryButton.activeFocus ? 1 : 0
+            Behavior on opacity { NumberAnimation { duration: 140 } }
+        }
     }
 
     component GhostButton: Button {
@@ -204,16 +231,28 @@ ApplicationWindow {
             Behavior on color { ColorAnimation { duration: 160 } }
             Behavior on border.color { ColorAnimation { duration: 160 } }
         }
+        Rectangle {
+            z: -1
+            anchors.fill: parent
+            anchors.margins: -3
+            radius: root.radiusControl + 3
+            color: "transparent"
+            border.color: root.accent
+            border.width: 2
+            opacity: ghostButton.activeFocus ? 1 : 0
+            Behavior on opacity { NumberAnimation { duration: 140 } }
+        }
     }
 
     component AppTextField: TextField {
         id: field
         implicitHeight: 48
+        property bool searchIcon: false
         color: root.textMain
         placeholderTextColor: root.textMuted
         selectionColor: root.accent
         selectedTextColor: "white"
-        leftPadding: root.space3
+        leftPadding: field.searchIcon ? 36 : root.space3
         rightPadding: root.space3
         font.pixelSize: 14
         font.weight: root.bodyWeight
@@ -229,6 +268,26 @@ ApplicationWindow {
                 when: field.hovered && !field.activeFocus
                 PropertyChanges { target: field; background.color: root.panel }
             }
+        }
+        Rectangle {
+            z: -1
+            anchors.fill: parent
+            anchors.margins: -3
+            radius: root.radiusControl + 3
+            color: "transparent"
+            border.color: root.accent
+            border.width: 2
+            opacity: field.activeFocus ? 1 : 0
+            Behavior on opacity { NumberAnimation { duration: 140 } }
+        }
+        Text {
+            visible: field.searchIcon
+            anchors.left: parent.left
+            anchors.leftMargin: 12
+            anchors.verticalCenter: parent.verticalCenter
+            text: "⌕"
+            color: root.textMuted
+            font.pixelSize: 15
         }
     }
 
@@ -934,6 +993,22 @@ ApplicationWindow {
                             font.pixelSize: 24
                             font.weight: root.titleWeight
                         }
+                        Rectangle {
+                            visible: root.section === 0 && root.totalUnread > 0
+                            Layout.preferredWidth: unreadBadgeText.implicitWidth + 14
+                            Layout.preferredHeight: 20
+                            radius: 10
+                            color: root.accentSurface
+                            Text {
+                                id: unreadBadgeText
+                                anchors.centerIn: parent
+                                text: root.totalUnread > 99
+                                    ? "99+" : String(root.totalUnread)
+                                color: root.accentText
+                                font.pixelSize: 11
+                                font.weight: root.titleWeight
+                            }
+                        }
                         Item { Layout.fillWidth: true }
                         Button {
                             id: addFriendButton
@@ -966,6 +1041,7 @@ ApplicationWindow {
                         visible: root.section < 2
                         Layout.fillWidth: true
                         implicitHeight: 44
+                        searchIcon: true
                         placeholderText: root.section === 0 ? "搜索会话" : "搜索联系人"
                         rightPadding: text.length ? 40 : 14
 
@@ -1001,6 +1077,15 @@ ApplicationWindow {
                         Layout.fillHeight: true
                         clip: true
                         spacing: root.space1
+                        ScrollBar.vertical: ScrollBar {
+                            policy: ScrollBar.AsNeeded
+                            width: 6
+                            background: Rectangle { color: "transparent" }
+                            contentItem: Rectangle {
+                                radius: 3
+                                color: root.line
+                            }
+                        }
                         model: root.section === 0 ? appController.conversations : appController.contacts
 
                         delegate: Item {
@@ -1564,6 +1649,7 @@ ApplicationWindow {
                             id: messageSearch
                             Layout.fillWidth: true
                             implicitHeight: 40
+                            searchIcon: true
                             placeholderText: "搜索当前聊天记录"
                             onAccepted: messageList.positionViewAtBeginning()
                         }
@@ -1586,14 +1672,23 @@ ApplicationWindow {
                     }
                 }
 
-                ListView {
-                    id: messageList
-                    Layout.fillWidth: true
-                    Layout.fillHeight: true
-                    Layout.margins: root.space4
-                    spacing: root.space2
-                    clip: true
-                    model: appController.messages
+                    ListView {
+                        id: messageList
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        Layout.margins: root.space4
+                        spacing: root.space2
+                        clip: true
+                        ScrollBar.vertical: ScrollBar {
+                            policy: ScrollBar.AsNeeded
+                            width: 6
+                            background: Rectangle { color: "transparent" }
+                            contentItem: Rectangle {
+                                radius: 3
+                                color: root.line
+                            }
+                        }
+                        model: appController.messages
 
                     delegate: Item {
                         id: messageRow
@@ -1646,12 +1741,26 @@ ApplicationWindow {
                             font.pixelSize: 11
                             font.weight: root.bodyWeight
                         }
+                        Rectangle {
+                            visible: messageRow.showDayHeader
+                            anchors.centerIn: dayHeader
+                            width: dayHeader.implicitWidth + 26
+                            height: 24
+                            radius: 12
+                            color: root.glass
+                            border.color: root.glassLine
+                            z: -1
+                        }
 
                         Rectangle {
                             id: bubble
                             anchors.top: dayHeader.bottom
                             anchors.right: modelData.mine ? parent.right : undefined
                             anchors.left: modelData.mine ? undefined : parent.left
+                            scale: bubbleHover.hovered ? 1.008 : 1
+                            Behavior on scale {
+                                NumberAnimation { duration: 160; easing.type: Easing.OutCubic }
+                            }
                             width: Math.min(Math.max(96,
                                 Math.max(messageText.implicitWidth,
                                     replyPreviewText.implicitWidth) + 32),

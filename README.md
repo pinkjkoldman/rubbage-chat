@@ -44,6 +44,7 @@ third_party/           MongoDB C/C++ 静态驱动
 详细设计见 [ARCHITECTURE.md](ARCHITECTURE.md)，架构评估见
 [docs/ARCHITECTURE_REVIEW.md](docs/ARCHITECTURE_REVIEW.md)，
 产品视角的界面重设计见 [docs/UI_REDESIGN_PM.md](docs/UI_REDESIGN_PM.md)，
+UI/UX 设计系统规范见 [docs/UI_UX_DESIGN_SYSTEM.md](docs/UI_UX_DESIGN_SYSTEM.md)，
 公网部署见 [PUBLIC_TEST_DEPLOYMENT.md](PUBLIC_TEST_DEPLOYMENT.md)。
 
 ## 构建
