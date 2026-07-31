@@ -937,7 +937,7 @@ ApplicationWindow {
                         Item { Layout.fillWidth: true }
                         Button {
                             id: addFriendButton
-                            visible: root.section === 1
+                            visible: root.section < 2
                             Layout.preferredWidth: 40
                             Layout.preferredHeight: 40
                             text: "+"
@@ -956,7 +956,8 @@ ApplicationWindow {
                             }
                             onClicked: addFriendDialog.open()
                             ToolTip.visible: hovered
-                            ToolTip.text: "添加好友"
+                            ToolTip.text: root.section === 0
+                                ? "添加好友，开始会话" : "添加好友"
                         }
                     }
 
@@ -1046,12 +1047,28 @@ ApplicationWindow {
                                     width: parent.width
                                     spacing: root.space2
                                     Text {
-                                        width: parent.width - 56
-                                        text: (modelData.pinned ? "⌃ " : "") + modelData.name
+                                        width: parent.width
+                                            - (modelData.pinned ? 106 : 58)
+                                        text: modelData.name
                                         color: root.textMain
                                         font.pixelSize: 14
                                         font.weight: root.titleWeight
                                         elide: Text.ElideRight
+                                    }
+                                    Rectangle {
+                                        visible: modelData.pinned
+                                        width: 40
+                                        height: 18
+                                        radius: 9
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        color: root.accentSoft
+                                        Text {
+                                            anchors.centerIn: parent
+                                            text: "置顶"
+                                            color: root.accent
+                                            font.pixelSize: 9
+                                            font.weight: root.bodyWeight
+                                        }
                                     }
                                     Text {
                                         visible: root.section === 0
@@ -1204,10 +1221,10 @@ ApplicationWindow {
                         Item { Layout.fillHeight: true }
                     }
 
-                    ColumnLayout {
-                        visible: root.section === 3
-                        Layout.fillWidth: true
-                        Layout.fillHeight: true
+                ColumnLayout {
+                    visible: root.section === 3
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
                         spacing: root.space2
 
                         Rectangle {
@@ -1304,11 +1321,78 @@ ApplicationWindow {
                                     onClicked: root.settingsSectionRequested(index)
                                 }
                             }
+                    }
+                    Item { Layout.fillHeight: true }
+                }
+
+                Rectangle {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: 64
+                    Layout.topMargin: root.space2
+                    radius: root.radiusControl
+                    color: root.panelAlt
+                    border.color: root.line
+
+                    RowLayout {
+                        anchors.fill: parent
+                        anchors.margins: root.space2
+                        spacing: root.space2
+
+                        Avatar {
+                            avatarSize: 40
+                            label: appController.currentUserName
+                            seed: appController.currentUserAccount
+                            online: appController.connected
                         }
-                        Item { Layout.fillHeight: true }
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: 2
+                            Text {
+                                text: appController.currentUserName
+                                color: root.textMain
+                                font.pixelSize: 13
+                                font.weight: root.titleWeight
+                                elide: Text.ElideRight
+                            }
+                            Text {
+                                text: appController.currentUserAccount
+                                    + (appController.connected ? " · 已连接" : " · 重连中")
+                                color: appController.connected ? root.textMuted : root.danger
+                                font.pixelSize: 11
+                                font.weight: root.bodyWeight
+                                elide: Text.ElideRight
+                            }
+                        }
+                        Button {
+                            id: sidebarUserMenuButton
+                            Layout.preferredWidth: 32
+                            Layout.preferredHeight: 32
+                            z: 2
+                            text: "⋯"
+                            contentItem: Text {
+                                text: sidebarUserMenuButton.text
+                                color: sidebarUserMenuButton.hovered ? root.accent : root.textMuted
+                                font.pixelSize: 18
+                                horizontalAlignment: Text.AlignHCenter
+                                verticalAlignment: Text.AlignVCenter
+                            }
+                            background: Rectangle {
+                                radius: root.radiusControl
+                                color: sidebarUserMenuButton.hovered ? root.panel : "transparent"
+                            }
+                            onClicked: userMenu.popup()
+                            ToolTip.visible: hovered
+                            ToolTip.text: "账号菜单"
+                        }
+                    }
+                    MouseArea {
+                        anchors.fill: parent
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: profileDialog.open()
                     }
                 }
             }
+        }
 
             Rectangle {
                 Layout.fillWidth: true
@@ -1380,6 +1464,12 @@ ApplicationWindow {
                     color: root.textMuted
                     font.pixelSize: 13
                     font.weight: root.bodyWeight
+                }
+                PrimaryButton {
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    implicitWidth: 180
+                    text: "添加好友，开始聊天"
+                    onClicked: addFriendDialog.open()
                 }
             }
 
@@ -1710,6 +1800,82 @@ ApplicationWindow {
                             anchors.rightMargin: modelData.mine ? -7 : 0
                             anchors.left: modelData.mine ? undefined : bubble.left
                             anchors.leftMargin: modelData.mine ? 0 : -7
+                        }
+
+                        Row {
+                            id: quickActionRow
+                            visible: bubbleHover.hovered && !modelData.recalled
+                            opacity: visible ? 1 : 0
+                            Behavior on opacity { NumberAnimation { duration: 120 } }
+                            anchors.bottom: bubble.top
+                            anchors.bottomMargin: 6
+                            anchors.right: modelData.mine ? bubble.right : undefined
+                            anchors.left: modelData.mine ? undefined : bubble.left
+                            spacing: 4
+                            z: 4
+
+                            Rectangle {
+                                id: quickReplyAction
+                                width: 44
+                                height: 26
+                                radius: 13
+                                color: root.panel
+                                border.color: root.line
+                                layer.enabled: true
+                                layer.effect: MultiEffect {
+                                    shadowEnabled: true
+                                    shadowColor: root.dark ? "#66000000" : "#180f172a"
+                                    shadowOpacity: 0.6
+                                    shadowBlur: 0.3
+                                    shadowVerticalOffset: 2
+                                }
+                                Text {
+                                    anchors.centerIn: parent
+                                    text: "↪ 回复"
+                                    color: root.textMain
+                                    font.pixelSize: 11
+                                    font.weight: root.bodyWeight
+                                }
+                                MouseArea {
+                                    anchors.fill: parent
+                                    hoverEnabled: true
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: {
+                                        root.replyPreview = modelData.body
+                                        appController.replyToMessage(
+                                            modelData.id, modelData.body)
+                                        composer.forceActiveFocus()
+                                    }
+                                }
+                            }
+                            Rectangle {
+                                id: quickReactAction
+                                width: 40
+                                height: 26
+                                radius: 13
+                                color: root.panel
+                                border.color: root.line
+                                layer.enabled: true
+                                layer.effect: MultiEffect {
+                                    shadowEnabled: true
+                                    shadowColor: root.dark ? "#66000000" : "#180f172a"
+                                    shadowOpacity: 0.6
+                                    shadowBlur: 0.3
+                                    shadowVerticalOffset: 2
+                                }
+                                Text {
+                                    anchors.centerIn: parent
+                                    text: "👍"
+                                    font.pixelSize: 13
+                                }
+                                MouseArea {
+                                    anchors.fill: parent
+                                    hoverEnabled: true
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: appController.reactToMessage(
+                                        modelData.id, "👍")
+                                }
+                            }
                         }
 
                         Rectangle {
@@ -2525,6 +2691,23 @@ ApplicationWindow {
                 }
                 }
             }
+        }
+    }
+
+    Menu {
+        id: userMenu
+        MenuItem {
+            text: "编辑个人资料"
+            onTriggered: profileDialog.open()
+        }
+        MenuItem {
+            text: "切换账号"
+            onTriggered: switchAccountDialog.open()
+        }
+        MenuSeparator {}
+        MenuItem {
+            text: "退出登录"
+            onTriggered: appController.logout()
         }
     }
 
