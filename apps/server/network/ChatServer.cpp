@@ -104,6 +104,11 @@ QString ChatServer::databaseTarget() const
 	return QStringLiteral("%1:%2/%3").arg(host).arg(port).arg(database);
 }
 
+int ChatServer::pendingCommands() const
+{
+	return m_commandService ? m_commandService->pending() : 0;
+}
+
 int ChatServer::authenticatedConnections() const
 {
 	int count = 0;
@@ -434,6 +439,7 @@ void ChatServer::handlePacket(QTcpSocket* socket, const QJsonObject& packet)
 	const QPointer<QTcpSocket> guardedSocket(socket);
 	const bool accepted = m_commandService->execute(packet,
 		[this, guardedSocket, packet](ChatCommandService::Result result) {
+			emit metricsChanged();
 			if (!guardedSocket || !m_clients.contains(guardedSocket))
 				return;
 			QTcpSocket* client = guardedSocket;
@@ -499,255 +505,14 @@ void ChatServer::handlePacket(QTcpSocket* socket, const QJsonObject& packet)
 					}
 				}
 			}
-			emit metricsChanged();
 		});
 	if (!accepted)
 		sendError(socket, packet,
 			QStringLiteral("服务器繁忙，请稍后重试"));
+	else
+		emit metricsChanged();
 	return;
 
-#if 0
-	try {
-		if (action == "register") {
-			if (!m_registrationEnabled) {
-				sendError(socket, packet, QStringLiteral("当前未开放新账号注册"));
-				return;
-			}
-			if (!allowRate("register:" + peer, 5, 60LL * 60 * 1000)) {
-				sendError(socket, packet, QStringLiteral("注册尝试过于频繁，请稍后重试"));
-				return;
-			}
-			sendResponse(socket, packet, m_store->registerUser(
-				data.value("name").toString(), data.value("password").toString()));
-			return;
-		}
-		if (action == "login") {
-			const QString requestedAccount =
-				data.value("account").toString().trimmed();
-			if (!allowRate("login-ip:" + peer, 12, 60000)
-				|| !allowRate("login-account:" + requestedAccount,
-					8, 5LL * 60 * 1000)) {
-				sendError(socket, packet, QStringLiteral("登录尝试过于频繁，请稍后重试"));
-				return;
-			}
-			QJsonObject result = m_store->login(
-				requestedAccount,
-				data.value("password").toString(),
-				packet.value("deviceId").toString());
-			iterator->account = result.value("account").toString();
-			iterator->token = result.value("token").toString();
-			iterator->deviceId = result.value("deviceId").toString();
-			appendLog(QStringLiteral("success"),
-				QStringLiteral("Account %1 authenticated.")
-					.arg(iterator->account));
-			emit metricsChanged();
-			QJsonObject snapshot = result.value("snapshot").toObject();
-			overlayPresence(snapshot);
-			result.insert("snapshot", snapshot);
-			sendResponse(socket, packet, result);
-			for (QTcpSocket* peer : m_clients.keys())
-				sendEvent(peer, "presence",
-					{{"account", iterator->account}, {"online", true}});
-			return;
-		}
-		if (action == "ping") {
-			sendResponse(socket, packet, {{"serverTime", double(nowMs())}});
-			return;
-		}
-
-		const QString token = packet.value("token").toString();
-		const QString account = m_store->authenticate(token);
-		if (account.isEmpty()) {
-			sendError(socket, packet, QStringLiteral("会话已失效，请重新登录"));
-			return;
-		}
-		iterator->account = account;
-		iterator->token = token;
-		emit metricsChanged();
-
-		if (action == "logout") {
-			m_store->logout(token);
-			iterator->account.clear();
-			iterator->token.clear();
-			iterator->deviceId.clear();
-			emit metricsChanged();
-			sendResponse(socket, packet);
-		}
-		else if (action == "snapshot") {
-			QJsonObject snapshot = m_store->snapshot(account);
-			overlayPresence(snapshot);
-			sendResponse(socket, packet, snapshot);
-		}
-		else if (action == "search_user") {
-			QJsonObject user = m_store->searchUser(
-				account, data.value("account").toString());
-			bool online = false;
-			const QString searched = user.value("account").toString();
-			for (const ClientState& client : std::as_const(m_clients))
-				online = online || client.account == searched;
-			user.insert("online", online);
-			sendResponse(socket, packet, {{"user", user}});
-		}
-		else if (action == "send_friend_request") {
-			const QString peer = data.value("account").toString();
-			m_store->sendFriendRequest(account, peer);
-			sendResponse(socket, packet);
-			notifyStateChanged({account, peer});
-		}
-		else if (action == "accept_friend_request") {
-			const QString peer = data.value("account").toString();
-			m_store->acceptFriendRequest(account, peer);
-			sendResponse(socket, packet);
-			notifyStateChanged({account, peer});
-		}
-		else if (action == "reject_friend_request") {
-			const QString peer = data.value("account").toString();
-			m_store->rejectFriendRequest(account, peer);
-			sendResponse(socket, packet);
-			notifyStateChanged({account, peer});
-		}
-		else if (action == "remove_friend") {
-			const QString peer = data.value("account").toString();
-			m_store->removeFriend(account, peer);
-			sendResponse(socket, packet);
-			notifyStateChanged({account, peer});
-		}
-		else if (action == "history") {
-			sendResponse(socket, packet, m_store->syncMessages(
-				account, data.value("account").toString(),
-				0, data.value("limit").toInt(200)));
-		}
-		else if (action == "sync_messages") {
-			sendResponse(socket, packet, m_store->syncMessages(
-				account, data.value("account").toString(),
-				qint64(data.value("afterSeq").toDouble()),
-				data.value("limit").toInt(200)));
-		}
-		else if (action == "send_message") {
-			const QString peer = data.value("account").toString();
-			const QJsonObject message = m_store->sendMessage(account, peer,
-				data.value("body").toString(),
-				data.value("clientMessageId").toString(), "text", {},
-				packet.value("deviceId").toString(),
-				data.value("replyToId").toString());
-			sendResponse(socket, packet, {{"message", message}});
-			notifyAccount(peer, "message", message);
-			notifyAccount(account, "message_committed", message);
-			notifyStateChanged({account, peer});
-		}
-		else if (action == "send_file") {
-			const QString peer = data.value("account").toString();
-			const QByteArray bytes = QByteArray::fromBase64(
-				data.value("base64").toString().toLatin1());
-			const QJsonObject attachment = m_store->storeAttachment(account, peer,
-				data.value("fileName").toString(), data.value("mimeType").toString(),
-				bytes);
-			const QJsonObject message = m_store->sendMessage(account, peer,
-				QStringLiteral("[文件] %1").arg(attachment.value("fileName").toString()),
-				data.value("clientMessageId").toString(), "file",
-				attachment.value("id").toString(),
-				packet.value("deviceId").toString(),
-				data.value("replyToId").toString());
-			sendResponse(socket, packet,
-				{{"attachment", attachment}, {"message", message}});
-			notifyAccount(peer, "message", message);
-			notifyAccount(account, "message_committed", message);
-			notifyStateChanged({account, peer});
-		}
-		else if (action == "ack_message") {
-			const QString peer = data.value("account").toString();
-			const QJsonObject receipt = m_store->acknowledgeMessage(account, peer,
-				qint64(data.value("seq").toDouble()),
-				data.value("kind").toString());
-			sendResponse(socket, packet, {{"receipt", receipt}});
-			notifyAccount(peer, "message_receipt", receipt);
-		}
-		else if (action == "edit_message") {
-			const QJsonObject message = m_store->editMessage(account,
-				data.value("messageId").toString(),
-				data.value("body").toString());
-			sendResponse(socket, packet, {{"message", message}});
-			notifyAccount(message.value("receiver").toString(),
-				"message_updated", message);
-			notifyAccount(account, "message_updated", message);
-		}
-		else if (action == "recall_message") {
-			const QJsonObject message = m_store->recallMessage(account,
-				data.value("messageId").toString());
-			sendResponse(socket, packet, {{"message", message}});
-			notifyAccount(message.value("receiver").toString(),
-				"message_updated", message);
-			notifyAccount(account, "message_updated", message);
-		}
-		else if (action == "react_message") {
-			const QJsonObject message = m_store->reactToMessage(account,
-				data.value("messageId").toString(),
-				data.value("emoji").toString());
-			sendResponse(socket, packet, {{"message", message}});
-			const QString other = message.value("sender").toString() == account
-				? message.value("receiver").toString()
-				: message.value("sender").toString();
-			notifyAccount(other, "message_updated", message);
-			notifyAccount(account, "message_updated", message);
-		}
-		else if (action == "list_devices") {
-			sendResponse(socket, packet, {{"devices", m_store->devices(account)}});
-		}
-		else if (action == "revoke_device") {
-			const QString deviceId = data.value("deviceId").toString();
-			m_store->revokeDevice(account, deviceId, token);
-			sendResponse(socket, packet);
-			for (QTcpSocket* client : m_clients.keys()) {
-				if (m_clients.value(client).account == account
-					&& m_clients.value(client).deviceId == deviceId) {
-					sendEvent(client, "session_revoked");
-					client->disconnectFromHost();
-				}
-			}
-		}
-		else if (action == "download_attachment") {
-			sendResponse(socket, packet, {{"attachment", m_store->loadAttachment(
-				account, data.value("attachmentId").toString())}});
-		}
-		else if (action == "set_conversation_option") {
-			m_store->setConversationOption(account,
-				data.value("account").toString(), data.value("option").toString(),
-				data.value("value").toBool());
-			sendResponse(socket, packet);
-			notifyStateChanged({account});
-		}
-		else if (action == "conversation_option") {
-			sendResponse(socket, packet, m_store->conversationOption(
-				account, data.value("account").toString()));
-		}
-		else if (action == "clear_conversation") {
-			m_store->clearConversation(account, data.value("account").toString());
-			sendResponse(socket, packet);
-			notifyStateChanged({account});
-		}
-		else if (action == "update_profile") {
-			m_store->updateProfile(account, data.value("name").toString(),
-				data.value("signature").toString());
-			sendResponse(socket, packet);
-			notifyStateChanged({account});
-		}
-		else if (action == "change_password") {
-			m_store->changePassword(account,
-				data.value("currentPassword").toString(),
-				data.value("newPassword").toString());
-			iterator->account.clear();
-			iterator->token.clear();
-			emit metricsChanged();
-			sendResponse(socket, packet, {{"reauthenticate", true}});
-		}
-		else {
-			sendError(socket, packet, QStringLiteral("未知操作"));
-		}
-	}
-	catch (const std::exception& exception) {
-		sendError(socket, packet, exceptionMessage(exception));
-	}
-#endif
 }
 
 void ChatServer::sendResponse(QTcpSocket* socket,

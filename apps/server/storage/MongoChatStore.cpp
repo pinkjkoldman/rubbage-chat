@@ -158,6 +158,17 @@ public:
 			kvp("b", canonicalB(first, second).toStdString()))));
 	}
 
+	void ensureFriendship(const QString& first, const QString& second)
+	{
+		mongocxx::options::update upsert;
+		upsert.upsert(true);
+		database["friendships"].update_one(make_document(
+			kvp("a", canonicalA(first, second).toStdString()),
+			kvp("b", canonicalB(first, second).toStdString())),
+			make_document(kvp("$setOnInsert",
+				make_document(kvp("createdAt", nowMs())))), upsert);
+	}
+
 	void createUser(const QString& account, const QString& name,
 		const QString& password)
 	{
@@ -273,6 +284,24 @@ bool MongoChatStore::initialize(
 				d->createUser("100000001", "演示账号 Alpha", "rubbagechat");
 			if (d->findUser("100000002").isEmpty())
 				d->createUser("100000002", "演示账号 Beta", "rubbagechat");
+			d->ensureFriendship("100000001", "100000002");
+			if (d->database["messages"].count_documents(make_document(
+				kvp("a", "100000001"), kvp("b", "100000002"))) == 0) {
+				const QJsonObject welcome = sendMessage(
+					"100000002", "100000001",
+					QStringLiteral("欢迎体验 RubbageChat，所有连接信息都会自动发现。"),
+					"demo-welcome-beta");
+				sendMessage("100000001", "100000002",
+					QStringLiteral("很好，客户端只需要登录就能开始聊天。"),
+					"demo-welcome-alpha", "text", {}, {},
+					welcome.value("id").toString());
+				const QJsonObject reactionTarget = sendMessage(
+					"100000002", "100000001",
+					QStringLiteral("试试右键消息：可以回复、回应、编辑或撤回。"),
+					"demo-features-beta");
+				reactToMessage("100000001",
+					reactionTarget.value("id").toString(), QStringLiteral("👍"));
+			}
 		}
 		return true;
 	}

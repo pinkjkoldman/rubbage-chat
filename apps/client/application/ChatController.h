@@ -42,12 +42,6 @@ class ChatController final : public QObject
 	Q_PROPERTY(bool fileTransferActive READ fileTransferActive NOTIFY fileTransferChanged)
 	Q_PROPERTY(qreal fileTransferProgress READ fileTransferProgress NOTIFY fileTransferChanged)
 	Q_PROPERTY(QString fileTransferLabel READ fileTransferLabel NOTIFY fileTransferChanged)
-	Q_PROPERTY(QString serverHost READ serverHost NOTIFY networkSettingsChanged)
-	Q_PROPERTY(int chatPort READ chatPort NOTIFY networkSettingsChanged)
-	Q_PROPERTY(int filePort READ filePort NOTIFY networkSettingsChanged)
-	Q_PROPERTY(bool tlsEnabled READ tlsEnabled NOTIFY networkSettingsChanged)
-	Q_PROPERTY(bool networkLocked READ networkLocked NOTIFY networkSettingsChanged)
-	Q_PROPERTY(QString endpointStatus READ endpointStatus NOTIFY networkSettingsChanged)
 
 public:
 	explicit ChatController(QObject* parent = nullptr);
@@ -79,13 +73,6 @@ public:
 	bool fileTransferActive() const { return m_fileTransferActive; }
 	qreal fileTransferProgress() const { return m_fileTransferProgress; }
 	QString fileTransferLabel() const { return m_fileTransferLabel; }
-	QString serverHost() const { return m_serverHost; }
-	int chatPort() const { return m_chatPort; }
-	int filePort() const { return m_filePort; }
-	bool tlsEnabled() const { return m_tlsEnabled; }
-	bool networkLocked() const { return m_networkLocked; }
-	QString endpointStatus() const { return m_endpointStatus; }
-
 	Q_INVOKABLE void login(const QString& account, const QString& password);
 	Q_INVOKABLE void registerAccount(const QString& name, const QString& password, const QString& confirmation);
 	Q_INVOKABLE void logout();
@@ -135,7 +122,6 @@ signals:
 	void toastChanged();
 	void settingsChanged();
 	void fileTransferChanged();
-	void networkSettingsChanged();
 
 private:
 	void connectToServer();
@@ -198,10 +184,7 @@ private:
 	qreal m_fileTransferProgress = 0.0;
 	QString m_fileTransferLabel;
 	QString m_serverHost = "127.0.0.1";
-	QString m_endpointStatus;
 	QUrl m_bootstrapUrl;
 	bool m_tlsEnabled = false;
-	bool m_networkLocked = true;
 	int m_chatPort = 7502;
-	int m_filePort = 7028;
 };

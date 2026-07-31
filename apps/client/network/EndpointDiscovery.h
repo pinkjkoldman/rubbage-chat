@@ -27,14 +27,13 @@ public:
 
 signals:
 	void resolved(const QString& host, int port, bool tls);
-	void statusChanged(const QString& status);
 
 private:
 	bool acceptDocument(const QByteArray& payload, Endpoint& endpoint,
 		qint64& expiresAt, QString* error) const;
 	bool readCached(Endpoint& endpoint) const;
 	void saveCached(const QByteArray& payload, qint64 expiresAt);
-	void finishWith(const Endpoint& endpoint, const QString& status);
+	void finishWith(const Endpoint& endpoint);
 	void finishWithFallback(const QString& reason);
 
 	QNetworkAccessManager m_network;

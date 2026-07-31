@@ -12,6 +12,7 @@
 #include <QGuiApplication>
 #include <QJsonArray>
 #include <QJsonDocument>
+#include <QMap>
 #include <QMimeDatabase>
 #include <QRandomGenerator>
 #include <QRegularExpression>
@@ -43,17 +44,12 @@ ChatController::ChatController(QObject* parent)
 		QSettings::IniFormat);
 	m_bootstrapUrl = QUrl(qEnvironmentVariable("RUBBAGECHAT_BOOTSTRAP_URL",
 		runtimeConfig.value("network/bootstrapUrl").toString()).trimmed());
-	m_networkLocked = true;
 	m_serverHost = qEnvironmentVariable("RUBBAGECHAT_SERVER_HOST",
 		runtimeConfig.value("network/host", "127.0.0.1").toString()).trimmed();
 	bool chatPortOk = false;
-	bool filePortOk = false;
 	const int chatPort = qEnvironmentVariable("RUBBAGECHAT_CHAT_PORT",
 		runtimeConfig.value("network/chatPort", 7502).toString()).toInt(&chatPortOk);
-	const int filePort = qEnvironmentVariable("RUBBAGECHAT_FILE_PORT",
-		runtimeConfig.value("network/filePort", 7028).toString()).toInt(&filePortOk);
 	m_chatPort = chatPortOk && chatPort > 0 && chatPort <= 65535 ? chatPort : 7502;
-	m_filePort = filePortOk && filePort > 0 && filePort <= 65535 ? filePort : 7028;
 	if (m_serverHost.isEmpty())
 		m_serverHost = "127.0.0.1";
 	m_tlsEnabled = qEnvironmentVariable("RUBBAGECHAT_TLS",
@@ -119,18 +115,12 @@ ChatController::ChatController(QObject* parent)
 	m_pingTimer.start();
 	connect(QGuiApplication::styleHints(), &QStyleHints::colorSchemeChanged,
 		this, &ChatController::settingsChanged);
-	connect(&m_endpointDiscovery, &EndpointDiscovery::statusChanged,
-		this, [this](const QString& status) {
-			m_endpointStatus = status;
-			emit networkSettingsChanged();
-		});
 	connect(&m_endpointDiscovery, &EndpointDiscovery::resolved,
 		this, [this](const QString& host, int port, bool tls) {
 			m_serverHost = host;
 			m_chatPort = port;
 			m_tlsEnabled = tls;
 			m_tlsBlocked = false;
-			emit networkSettingsChanged();
 			connectToServer();
 		});
 	m_endpointDiscovery.resolve(m_bootstrapUrl,
@@ -341,6 +331,8 @@ bool ChatController::sendMessage(const QString& text)
 		{"status", m_connected ? "sending" : "queued"},
 		{"replyToId", m_replyToId},
 		{"replyPreview", m_replyPreview},
+		{"reactionSummary", QString()},
+		{"dayLabel", QStringLiteral("今天")},
 		{"time", QDateTime::currentDateTime().toString("HH:mm")}
 	});
 	emit messagesChanged();
@@ -799,6 +791,35 @@ QVariantMap ChatController::messageMap(const QJsonObject& message) const
 {
 	const bool recalled = message.value("recalledAt").toDouble() > 0
 		|| message.value("status").toString() == "recalled";
+	const QDateTime createdAt = QDateTime::fromMSecsSinceEpoch(
+		qint64(message.value("createdAt").toDouble()));
+	const QDate today = QDate::currentDate();
+	QString dayLabel;
+	if (createdAt.date() == today)
+		dayLabel = QStringLiteral("今天");
+	else if (createdAt.date() == today.addDays(-1))
+		dayLabel = QStringLiteral("昨天");
+	else if (createdAt.date().year() == today.year())
+		dayLabel = createdAt.date().toString(QStringLiteral("M月d日"));
+	else
+		dayLabel = createdAt.date().toString(QStringLiteral("yyyy年M月d日"));
+
+	QMap<QString, int> reactionCounts;
+	QStringList reactionOrder;
+	for (const QJsonValue& value : message.value("reactions").toArray()) {
+		const QString emoji = value.toObject().value("emoji").toString();
+		if (emoji.isEmpty())
+			continue;
+		if (!reactionCounts.contains(emoji))
+			reactionOrder.append(emoji);
+		++reactionCounts[emoji];
+	}
+	QStringList reactionSummary;
+	for (const QString& emoji : std::as_const(reactionOrder)) {
+		const int count = reactionCounts.value(emoji);
+		reactionSummary.append(count > 1
+			? QStringLiteral("%1 %2").arg(emoji).arg(count) : emoji);
+	}
 	return {
 		{"id", message.value("id").toString()},
 		{"clientMessageId", message.value("clientMessageId").toString()},
@@ -814,8 +835,9 @@ QVariantMap ChatController::messageMap(const QJsonObject& message) const
 		{"replyToId", message.value("replyToId").toString()},
 		{"replyPreview", message.value("replyPreview").toString()},
 		{"reactions", message.value("reactions").toArray().toVariantList()},
-		{"time", QDateTime::fromMSecsSinceEpoch(
-			qint64(message.value("createdAt").toDouble())).toString("HH:mm")}
+		{"reactionSummary", reactionSummary.join(QStringLiteral("   "))},
+		{"dayLabel", dayLabel},
+		{"time", createdAt.toString("HH:mm")}
 	};
 }
 

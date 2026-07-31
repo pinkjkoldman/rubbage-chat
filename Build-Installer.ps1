@@ -87,7 +87,6 @@ $clientConfiguration = @"
 bootstrapUrl=$BootstrapUrl
 host=$ServerHost
 chatPort=$ServerPort
-filePort=7028
 locked=$lockedValue
 
 [security]

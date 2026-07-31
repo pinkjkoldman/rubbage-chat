@@ -59,7 +59,7 @@ void EndpointDiscovery::resolve(
 	m_fallback = fallback;
 
 	if (!bootstrapUrl.isValid() || bootstrapUrl.isEmpty()) {
-		finishWith(fallback, QStringLiteral("Using packaged endpoint"));
+		finishWith(fallback);
 		return;
 	}
 	const bool allowInsecure =
@@ -71,7 +71,6 @@ void EndpointDiscovery::resolve(
 		return;
 	}
 
-	emit statusChanged(QStringLiteral("Discovering the nearest endpoint"));
 	QNetworkRequest request(bootstrapUrl);
 	request.setHeader(QNetworkRequest::UserAgentHeader,
 		QStringLiteral("RubbageChat/2.5"));
@@ -111,7 +110,7 @@ void EndpointDiscovery::resolve(
 			&& payload.size() <= MaxBootstrapBytes
 			&& acceptDocument(payload, endpoint, expiresAt, &parseError)) {
 			saveCached(payload, expiresAt);
-			finishWith(endpoint, QStringLiteral("Endpoint discovered"));
+			finishWith(endpoint);
 			return;
 		}
 		finishWithFallback(parseError.isEmpty()
@@ -191,14 +190,12 @@ void EndpointDiscovery::saveCached(
 	cache.sync();
 }
 
-void EndpointDiscovery::finishWith(
-	const Endpoint& endpoint, const QString& status)
+void EndpointDiscovery::finishWith(const Endpoint& endpoint)
 {
 	if (m_finished || !endpoint.isValid())
 		return;
 	m_finished = true;
 	m_timeout.stop();
-	emit statusChanged(status);
 	emit resolved(endpoint.host, endpoint.port, endpoint.tls);
 }
 
@@ -208,10 +205,9 @@ void EndpointDiscovery::finishWithFallback(const QString& reason)
 		return;
 	Endpoint cached;
 	if (readCached(cached)) {
-		finishWith(cached, QStringLiteral("Using cached endpoint"));
+		finishWith(cached);
 		return;
 	}
-	finishWith(m_fallback, reason.isEmpty()
-		? QStringLiteral("Using packaged fallback")
-		: QStringLiteral("%1; using packaged fallback").arg(reason));
+	Q_UNUSED(reason)
+	finishWith(m_fallback);
 }

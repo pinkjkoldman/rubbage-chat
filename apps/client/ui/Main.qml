@@ -95,6 +95,18 @@ ApplicationWindow {
         return count
     }
 
+    function deliveryLabel(status) {
+        if (status === "queued")
+            return "等待网络"
+        if (status === "sending")
+            return "发送中"
+        if (status === "delivered")
+            return "已送达"
+        if (status === "read")
+            return "已读"
+        return "已发送"
+    }
+
     function draftFor(account) {
         return drafts[account] || ""
     }
@@ -1400,12 +1412,21 @@ ApplicationWindow {
                     delegate: Item {
                         id: messageRow
                         width: messageList.width
-                        height: messageVisible ? bubble.height + root.space3 : 0
+                        height: messageVisible
+                            ? dayHeader.height + bubble.height
+                                + (reactionBadge.visible ? reactionBadge.height + 4 : 0)
+                                + root.space3
+                            : 0
                         visible: messageVisible
                         opacity: 0
                         transform: Translate { id: messageShift; y: 6 }
                         property bool messageVisible: !chatPage.messageSearchOpen
                             || root.messageMatches(modelData, messageSearch.text)
+                        property bool showDayHeader: messageVisible
+                            && (modelData.dayLabel || "").length > 0
+                            && (index === 0
+                                || (appController.messages[index - 1].dayLabel || "")
+                                    !== modelData.dayLabel)
                         Component.onCompleted: messageEntrance.start()
                         ParallelAnimation {
                             id: messageEntrance
@@ -1424,13 +1445,33 @@ ApplicationWindow {
                                 easing.type: Easing.OutCubic
                             }
                         }
+
+                        Text {
+                            id: dayHeader
+                            anchors.top: parent.top
+                            anchors.horizontalCenter: parent.horizontalCenter
+                            width: parent.width
+                            height: messageRow.showDayHeader ? 32 : 0
+                            visible: messageRow.showDayHeader
+                            text: modelData.dayLabel || ""
+                            color: root.textMuted
+                            horizontalAlignment: Text.AlignHCenter
+                            verticalAlignment: Text.AlignVCenter
+                            font.pixelSize: 11
+                            font.weight: root.bodyWeight
+                        }
+
                         Rectangle {
                             id: bubble
+                            anchors.top: dayHeader.bottom
                             anchors.right: modelData.mine ? parent.right : undefined
                             anchors.left: modelData.mine ? undefined : parent.left
-                            width: Math.min(messageText.implicitWidth + 32, parent.width * 0.68)
-                            height: messageText.implicitHeight + 32
-                            radius: root.radiusControl
+                            width: Math.min(Math.max(96,
+                                Math.max(messageText.implicitWidth,
+                                    replyPreviewText.implicitWidth) + 32),
+                                parent.width * 0.68)
+                            height: bubbleContent.implicitHeight + 20
+                            radius: 18
                             gradient: Gradient {
                                 orientation: Gradient.Horizontal
                                 GradientStop {
@@ -1456,36 +1497,81 @@ ApplicationWindow {
                                 shadowBlur: 0.4
                                 shadowVerticalOffset: 3
                             }
-                            Text {
-                                id: messageText
+
+                            Column {
+                                id: bubbleContent
                                 anchors.fill: parent
-                                anchors.leftMargin: root.space3
-                                anchors.rightMargin: root.space3
-                                anchors.topMargin: root.space2
-                                anchors.bottomMargin: root.space3
-                                text: (modelData.replyPreview || "").length
-                                    ? "↪ " + modelData.replyPreview + "\n" + modelData.body
-                                    : modelData.body
-                                color: modelData.mine ? root.accentText : root.textMain
-                                font.pixelSize: 14
-                                font.weight: root.bodyWeight
-                                wrapMode: Text.Wrap
-                            }
-                            Text {
-                                anchors.right: parent.right
-                                anchors.rightMargin: root.space2
-                                anchors.bottom: parent.bottom
-                                anchors.bottomMargin: 4
-                                text: modelData.time
-                                    + (modelData.edited ? " · 已编辑" : "")
-                                    + (modelData.mine && modelData.status === "queued"
-                                        ? " · 待发送"
-                                        : modelData.mine && modelData.status === "read"
-                                            ? " · 已读" : "")
-                                color: modelData.mine ? root.accentText : root.textMuted
-                                opacity: modelData.mine ? 0.72 : 1
-                                font.pixelSize: 9
-                                font.weight: root.bodyWeight
+                                anchors.margins: 10
+                                spacing: root.space2
+
+                                Rectangle {
+                                    width: parent.width
+                                    height: visible ? replyPreviewText.implicitHeight + 16 : 0
+                                    visible: (modelData.replyPreview || "").length > 0
+                                    radius: root.radiusControl
+                                    color: modelData.mine ? "#22ffffff" : root.panelAlt
+
+                                    Rectangle {
+                                        anchors.left: parent.left
+                                        anchors.top: parent.top
+                                        anchors.bottom: parent.bottom
+                                        width: 3
+                                        radius: 2
+                                        color: modelData.mine ? "#aaffffff" : root.accent
+                                    }
+                                    Text {
+                                        id: replyPreviewText
+                                        anchors.fill: parent
+                                        anchors.leftMargin: 12
+                                        anchors.rightMargin: 8
+                                        anchors.topMargin: 8
+                                        anchors.bottomMargin: 8
+                                        text: modelData.replyPreview || ""
+                                        color: modelData.mine ? root.accentText : root.textMuted
+                                        opacity: modelData.mine ? 0.82 : 1
+                                        elide: Text.ElideRight
+                                        maximumLineCount: 2
+                                        wrapMode: Text.Wrap
+                                        font.pixelSize: 11
+                                        font.weight: root.bodyWeight
+                                    }
+                                }
+
+                                Text {
+                                    id: messageText
+                                    width: parent.width
+                                    text: modelData.body
+                                    color: modelData.mine ? root.accentText : root.textMain
+                                    font.pixelSize: 14
+                                    font.weight: root.bodyWeight
+                                    wrapMode: Text.Wrap
+                                }
+
+                                RowLayout {
+                                    width: parent.width
+                                    height: 12
+                                    spacing: root.space1
+
+                                    Text {
+                                        visible: modelData.edited
+                                        text: "已编辑"
+                                        color: modelData.mine ? root.accentText : root.textMuted
+                                        opacity: modelData.mine ? 0.7 : 1
+                                        font.pixelSize: 9
+                                        font.weight: root.bodyWeight
+                                    }
+                                    Item { Layout.fillWidth: true }
+                                    Text {
+                                        text: modelData.time
+                                            + (modelData.mine && !modelData.recalled
+                                                ? " · " + root.deliveryLabel(modelData.status)
+                                                : "")
+                                        color: modelData.mine ? root.accentText : root.textMuted
+                                        opacity: modelData.mine ? 0.72 : 1
+                                        font.pixelSize: 9
+                                        font.weight: root.bodyWeight
+                                    }
+                                }
                             }
                             TapHandler {
                                 enabled: modelData.type === "file"
@@ -1510,6 +1596,29 @@ ApplicationWindow {
                                     messageMenu.attachmentId = modelData.attachmentId || ""
                                     messageMenu.popup()
                                 }
+                            }
+                        }
+
+                        Rectangle {
+                            id: reactionBadge
+                            anchors.top: bubble.bottom
+                            anchors.topMargin: -4
+                            anchors.right: modelData.mine ? bubble.right : undefined
+                            anchors.left: modelData.mine ? undefined : bubble.left
+                            visible: (modelData.reactionSummary || "").length > 0
+                            width: reactionText.implicitWidth + 18
+                            height: visible ? 26 : 0
+                            radius: 13
+                            color: root.panel
+                            border.color: root.line
+
+                            Text {
+                                id: reactionText
+                                anchors.centerIn: parent
+                                text: modelData.reactionSummary || ""
+                                color: root.textMain
+                                font.pixelSize: 12
+                                font.weight: root.bodyWeight
                             }
                         }
                     }

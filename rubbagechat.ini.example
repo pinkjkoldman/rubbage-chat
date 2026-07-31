@@ -2,7 +2,6 @@
 bootstrapUrl=
 host=127.0.0.1
 chatPort=7502
-filePort=7028
 locked=false
 
 [database]

@@ -139,7 +139,8 @@ ApplicationWindow {
                     model: [
                         { label: qsTr("Public mode"), value: serverController.publicMode ? qsTr("Enabled") : qsTr("Disabled") },
                         { label: qsTr("Transport"), value: serverController.tlsEnabled ? "TLS 1.2+" : "TCP" },
-                        { label: qsTr("Listen port"), value: String(serverController.listenPort) }
+                        { label: qsTr("Listen port"), value: String(serverController.listenPort) },
+                        { label: qsTr("Business workers"), value: String(serverController.businessWorkers) }
                     ]
 
                     Row {
@@ -309,7 +310,7 @@ ApplicationWindow {
 
                 GridLayout {
                     width: parent.width
-                    columns: 4
+                    columns: 5
                     columnSpacing: 16
                     rowSpacing: 16
 
@@ -318,7 +319,8 @@ ApplicationWindow {
                             { label: qsTr("Active connections"), value: serverController.activeConnections, tone: "#5B5CE2" },
                             { label: qsTr("Authenticated"), value: serverController.authenticatedConnections, tone: "#20A779" },
                             { label: qsTr("Total requests"), value: serverController.totalRequests, tone: "#3478F6" },
-                            { label: qsTr("Rejected"), value: serverController.rejectedRequests, tone: "#E16B62" }
+                            { label: qsTr("Rejected"), value: serverController.rejectedRequests, tone: "#E16B62" },
+                            { label: qsTr("Queue / ") + serverController.maxPendingCommands, value: serverController.pendingCommands, tone: "#E4A344" }
                         ]
 
                         Rectangle {

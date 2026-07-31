@@ -31,6 +31,9 @@ class ChatServer final : public QObject
 		NOTIFY metricsChanged)
 	Q_PROPERTY(qulonglong totalRequests READ totalRequests NOTIFY metricsChanged)
 	Q_PROPERTY(qulonglong rejectedRequests READ rejectedRequests NOTIFY metricsChanged)
+	Q_PROPERTY(int pendingCommands READ pendingCommands NOTIFY metricsChanged)
+	Q_PROPERTY(int businessWorkers READ businessWorkers CONSTANT)
+	Q_PROPERTY(int maxPendingCommands READ maxPendingCommands CONSTANT)
 	Q_PROPERTY(QVariantList recentLogs READ recentLogs NOTIFY logsChanged)
 
 public:
@@ -53,6 +56,9 @@ public:
 	int authenticatedConnections() const;
 	qulonglong totalRequests() const { return m_totalRequests; }
 	qulonglong rejectedRequests() const { return m_rejectedRequests; }
+	int pendingCommands() const;
+	int businessWorkers() const { return m_businessWorkers; }
+	int maxPendingCommands() const { return m_maxPendingCommands; }
 	QVariantList recentLogs() const { return m_recentLogs; }
 
 signals:
