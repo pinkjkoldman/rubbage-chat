@@ -767,42 +767,14 @@ ApplicationWindow {
     Component {
         id: shellComponent
 
-        Item {
-            AuroraBackdrop {}
+        RowLayout {
+            anchors.fill: parent
+            spacing: 0
 
             Rectangle {
-                id: appFrame
-                anchors.fill: parent
-                anchors.margins: 14
-                radius: root.radiusApp
-                color: root.panel
-                border.color: root.line
-                border.width: 1
-                clip: true
-                layer.enabled: true
-                layer.effect: MultiEffect {
-                    shadowEnabled: true
-                    shadowColor: root.dark ? "#a0000000" : "#30101824"
-                    shadowOpacity: 0.75
-                    shadowBlur: 0.85
-                    shadowVerticalOffset: 12
-                }
-
-                RowLayout {
-                    anchors.fill: parent
-                    spacing: 0
-
-                    Rectangle {
-                        Layout.leftMargin: 12
-                        Layout.topMargin: 12
-                        Layout.bottomMargin: 12
-                        Layout.rightMargin: 12
-                        Layout.preferredWidth: 88
-                        Layout.fillHeight: true
-                        radius: root.radiusCard
-                        color: root.panelAlt
-                        border.color: root.line
-                        border.width: 1
+                Layout.preferredWidth: 88
+                Layout.fillHeight: true
+                color: root.navBg
 
                 ColumnLayout {
                     anchors.fill: parent
@@ -944,15 +916,10 @@ ApplicationWindow {
             }
 
             Rectangle {
-                Layout.topMargin: 12
-                Layout.bottomMargin: 12
-                Layout.rightMargin: 12
                 Layout.preferredWidth: root.section === 3 ? 280 : 336
                 Layout.fillHeight: true
-                radius: root.radiusCard
-                color: root.glass
-                border.color: root.glassLine
-                border.width: 1
+                color: root.panel
+                border.color: root.line
 
                 ColumnLayout {
                     anchors.fill: parent
@@ -1346,12 +1313,7 @@ ApplicationWindow {
             Rectangle {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
-                Layout.topMargin: 12
-                Layout.bottomMargin: 12
-                Layout.rightMargin: 12
-                radius: root.radiusCard
                 color: root.bg
-                clip: true
 
                 Loader {
                     id: contentLoader
@@ -1373,8 +1335,6 @@ ApplicationWindow {
                     Behavior on opacity {
                         NumberAnimation { duration: 180 }
                     }
-                }
-            }
                 }
             }
         }
@@ -1841,8 +1801,6 @@ ApplicationWindow {
                                 || root.replyPreview.length > 0
                             Layout.fillWidth: true
                             Layout.preferredHeight: visible ? 36 : 0
-                            Layout.leftMargin: 14
-                            Layout.rightMargin: 14
                             Rectangle {
                                 Layout.fillWidth: true
                                 Layout.fillHeight: true
@@ -1875,10 +1833,6 @@ ApplicationWindow {
                         RowLayout {
                             Layout.fillWidth: true
                             Layout.fillHeight: true
-                            Layout.leftMargin: 14
-                            Layout.rightMargin: 14
-                            Layout.topMargin: 4
-                            Layout.bottomMargin: 8
                             spacing: root.space2
 
                             Button {
@@ -1999,9 +1953,6 @@ ApplicationWindow {
                         RowLayout {
                             Layout.fillWidth: true
                             Layout.preferredHeight: 16
-                            Layout.leftMargin: 14
-                            Layout.rightMargin: 14
-                            Layout.bottomMargin: 8
                             Text {
                                 text: root.draftFor(appController.selectedPeerAccount).length
                                     ? "草稿已保留"
