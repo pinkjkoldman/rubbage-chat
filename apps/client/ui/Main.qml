@@ -33,8 +33,16 @@ ApplicationWindow {
     readonly property color navSelected: "#2b303d"
     readonly property color navMuted: "#8a92a2"
     readonly property color accentText: "#ffffff"
-    readonly property int radiusControl: 12
+    readonly property color auraA: dark ? "#251c14" : "#ffe9dc"
+    readonly property color auraB: dark ? "#131c31" : "#e7e4ff"
+    readonly property color auraC: dark ? "#15231c" : "#def2e6"
+    readonly property color glass: dark ? "#d9171a20" : "#e8ffffff"
+    readonly property color glassLine: dark ? "#332c313d" : "#2ee4e1dc"
+    readonly property int radiusControl: 14
     readonly property int radiusPanel: 24
+    readonly property int radiusApp: 28
+    readonly property int radiusCard: 20
+    readonly property int radiusPill: 999
     readonly property int space1: 4
     readonly property int space2: 8
     readonly property int space3: 16
@@ -189,9 +197,12 @@ ApplicationWindow {
         }
         background: Rectangle {
             radius: root.radiusControl
-            color: ghostButton.down ? root.line : ghostButton.hovered ? root.panelAlt : "transparent"
-            border.color: root.line
+            color: ghostButton.down
+                ? root.line : ghostButton.hovered ? root.panelAlt : "transparent"
+            border.color: ghostButton.highlighted ? root.accent : root.line
+            border.width: ghostButton.highlighted ? 1.5 : 1
             Behavior on color { ColorAnimation { duration: 160 } }
+            Behavior on border.color { ColorAnimation { duration: 160 } }
         }
     }
 
@@ -212,6 +223,12 @@ ApplicationWindow {
             border.color: field.activeFocus ? root.accent : root.line
             border.width: field.activeFocus ? 1.5 : 1
             Behavior on border.color { ColorAnimation { duration: 180 } }
+            Behavior on color { ColorAnimation { duration: 180 } }
+            states: State {
+                name: "hover"
+                when: field.hovered && !field.activeFocus
+                PropertyChanges { target: field; background.color: root.panel }
+            }
         }
     }
 
@@ -294,8 +311,46 @@ ApplicationWindow {
             shadowEnabled: true
             shadowColor: root.dark ? "#99000000" : "#260f172a"
             shadowOpacity: 0.7
-            shadowBlur: 0.55
-            shadowVerticalOffset: 6
+            shadowBlur: 0.72
+            shadowVerticalOffset: 8
+        }
+    }
+
+    component AuroraBackdrop: Canvas {
+        anchors.fill: parent
+        renderStrategy: Canvas.Cooperative
+        onPaint: {
+            const ctx = getContext("2d")
+            if (!ctx)
+                return
+            ctx.reset()
+            const w = width
+            const h = height
+            const base = ctx.createLinearGradient(0, 0, w, h)
+            base.addColorStop(0, root.bg)
+            base.addColorStop(1, root.auraB)
+            ctx.fillStyle = base
+            ctx.fillRect(0, 0, w, h)
+
+            const orbs = [
+                { x: w * 0.12, y: h * 0.10, r: Math.max(w, h) * 0.34, c: root.auraA },
+                { x: w * 0.86, y: h * 0.16, r: Math.max(w, h) * 0.30, c: root.auraB },
+                { x: w * 0.72, y: h * 0.82, r: Math.max(w, h) * 0.36, c: root.auraC }
+            ]
+            for (const orb of orbs) {
+                ctx.globalAlpha = root.dark ? 0.42 : 0.72
+                ctx.fillStyle = orb.c
+                ctx.beginPath()
+                ctx.arc(orb.x, orb.y, orb.r, 0, Math.PI * 2)
+                ctx.fill()
+            }
+            ctx.globalAlpha = 1
+        }
+        onWidthChanged: requestPaint()
+        onHeightChanged: requestPaint()
+        Connections {
+            target: appController
+            function onSettingsChanged() { requestPaint() }
         }
     }
 
@@ -453,34 +508,25 @@ ApplicationWindow {
         id: authComponent
 
         Item {
+            AuroraBackdrop {}
+
             Rectangle {
-                anchors.fill: parent
-                color: root.bg
+                width: parent.width * 0.46
+                height: parent.height
+                visible: parent.width >= 1040
+                color: "transparent"
 
-                Rectangle {
-                    width: parent.width * 0.46
-                    height: parent.height
-                    visible: parent.width >= 1040
-                    gradient: Gradient {
-                        GradientStop {
-                            position: 0
-                            color: root.dark ? "#251712" : "#fdeae4"
-                        }
-                        GradientStop {
-                            position: 1
-                            color: root.dark ? root.bg : "#faf6f2"
-                        }
-                    }
+                Column {
+                    anchors.centerIn: parent
+                    width: Math.min(448, parent.width - 96)
+                    spacing: root.space4
 
-                    Column {
-                        anchors.centerIn: parent
-                        width: Math.min(432, parent.width - 96)
-                        spacing: root.space4
-
+                    Row {
+                        spacing: root.space3
                         ElevatedSurface {
-                            width: 64
-                            height: 64
-                            radius: root.radiusPanel
+                            width: 60
+                            height: 60
+                            radius: root.radiusCard
                             gradient: Gradient {
                                 GradientStop { position: 0; color: root.accentSurface }
                                 GradientStop { position: 1; color: root.accentGlow }
@@ -489,38 +535,67 @@ ApplicationWindow {
                                 anchors.centerIn: parent
                                 text: "R"
                                 color: root.accentText
-                                font.pixelSize: 28
+                                font.pixelSize: 26
                                 font.weight: root.titleWeight
                             }
                         }
-                        Text {
-                            width: parent.width
-                            text: "让每一次对话\n都清晰而自在"
-                            color: root.textMain
-                            font.pixelSize: 40
-                            font.weight: root.titleWeight
-                            lineHeight: 1.2
+                        Column {
+                            anchors.verticalCenter: parent.verticalCenter
+                            spacing: 2
+                            Text {
+                                text: "RubbageChat"
+                                color: root.textMain
+                                font.pixelSize: 22
+                                font.weight: root.titleWeight
+                            }
+                            Text {
+                                text: "澄澈的对话空间"
+                                color: root.textMuted
+                                font.pixelSize: 12
+                                font.weight: root.bodyWeight
+                            }
                         }
-                        Text {
-                            width: parent.width
-                            text: "消息、联系人和设置都在同一个简洁空间里。"
-                            color: root.textMuted
-                            font.pixelSize: 16
-                            font.weight: root.bodyWeight
-                            wrapMode: Text.WordWrap
-                        }
-                        Row {
-                            spacing: root.space3
-                            Repeater {
-                                model: ["实时消息", "离线送达", "MongoDB 历史"]
-                                delegate: Row {
+                    }
+
+                    Text {
+                        width: parent.width
+                        text: "让每一次对话\n都清晰而自在"
+                        color: root.textMain
+                        font.pixelSize: 40
+                        font.weight: root.titleWeight
+                        lineHeight: 1.2
+                    }
+                    Text {
+                        width: parent.width
+                        text: "消息、联系人和设置都在同一个简洁空间里。"
+                        color: root.textMuted
+                        font.pixelSize: 16
+                        font.weight: root.bodyWeight
+                        wrapMode: Text.WordWrap
+                    }
+                    Row {
+                        spacing: root.space2
+                        Repeater {
+                            model: ["实时消息", "离线送达", "MongoDB 历史"]
+                            delegate: Rectangle {
+                                height: 34
+                                radius: root.radiusPill
+                                color: root.glass
+                                border.color: root.glassLine
+                                Row {
+                                    anchors.centerIn: parent
                                     spacing: root.space2
                                     Rectangle {
                                         width: 18
                                         height: 18
                                         radius: 9
                                         color: root.accentSurface
-                                        Text { anchors.centerIn: parent; text: "✓"; color: root.accentText; font.pixelSize: 11 }
+                                        Text {
+                                            anchors.centerIn: parent
+                                            text: "✓"
+                                            color: root.accentText
+                                            font.pixelSize: 11
+                                        }
                                     }
                                     Text {
                                         text: modelData
@@ -533,39 +608,52 @@ ApplicationWindow {
                         }
                     }
                 }
+            }
 
-                ElevatedSurface {
-                    id: authCard
-                    width: Math.min(432, parent.width - 80)
-                    height: authMode === 0 ? 520 : 616
-                    radius: root.radiusPanel
-                    color: root.panel
-                    anchors.verticalCenter: parent.verticalCenter
-                    anchors.right: parent.right
-                    anchors.rightMargin: parent.width >= 1040
-                        ? Math.max(72, (parent.width * 0.54 - width) / 2)
-                        : (parent.width - width) / 2
-                    border.color: root.line
+            ElevatedSurface {
+                id: authCard
+                width: Math.min(436, parent.width - 64)
+                height: authMode === 0 ? 544 : 636
+                radius: root.radiusApp
+                color: root.glass
+                anchors.verticalCenter: parent.verticalCenter
+                anchors.right: parent.right
+                anchors.rightMargin: parent.width >= 1040
+                    ? Math.max(72, (parent.width * 0.54 - width) / 2)
+                    : (parent.width - width) / 2
+                border.color: root.glassLine
+                border.width: 1
 
-                    property int authMode: 0
+                Rectangle {
+                    width: 52
+                    height: 4
+                    radius: 2
+                    color: root.accent
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    anchors.top: parent.top
+                    anchors.topMargin: 14
+                }
 
-                    ColumnLayout {
-                        anchors.fill: parent
-                        anchors.margins: root.space6
-                        spacing: root.space3
+                property int authMode: 0
 
-                        Text {
-                            text: authCard.authMode === 0 ? "欢迎回来" : "创建 RubbageChat 账号"
-                            color: root.textMain
-                            font.pixelSize: 28
-                            font.weight: root.titleWeight
-                        }
-                        Text {
-                            text: authCard.authMode === 0 ? "登录后继续你的对话" : "注册后会获得一个 9 位账号"
-                            color: root.textMuted
-                            font.pixelSize: 14
-                            font.weight: root.bodyWeight
-                        }
+                ColumnLayout {
+                    anchors.fill: parent
+                    anchors.margins: root.space6
+                    spacing: root.space3
+
+                    Text {
+                        Layout.topMargin: root.space2
+                        text: authCard.authMode === 0 ? "欢迎回来" : "创建 RubbageChat 账号"
+                        color: root.textMain
+                        font.pixelSize: 28
+                        font.weight: root.titleWeight
+                    }
+                    Text {
+                        text: authCard.authMode === 0 ? "登录后继续你的对话" : "注册后会获得一个 9 位账号"
+                        color: root.textMuted
+                        font.pixelSize: 14
+                        font.weight: root.bodyWeight
+                    }
 
                         RowLayout {
                             Layout.fillWidth: true
@@ -673,21 +761,48 @@ ApplicationWindow {
                         }
                     }
                 }
+                }
             }
-        }
-    }
 
     Component {
         id: shellComponent
 
-        RowLayout {
-            anchors.fill: parent
-            spacing: 0
+        Item {
+            AuroraBackdrop {}
 
             Rectangle {
-                Layout.preferredWidth: 88
-                Layout.fillHeight: true
-                color: root.navBg
+                id: appFrame
+                anchors.fill: parent
+                anchors.margins: 14
+                radius: root.radiusApp
+                color: root.panel
+                border.color: root.line
+                border.width: 1
+                clip: true
+                layer.enabled: true
+                layer.effect: MultiEffect {
+                    shadowEnabled: true
+                    shadowColor: root.dark ? "#a0000000" : "#30101824"
+                    shadowOpacity: 0.75
+                    shadowBlur: 0.85
+                    shadowVerticalOffset: 12
+                }
+
+                RowLayout {
+                    anchors.fill: parent
+                    spacing: 0
+
+                    Rectangle {
+                        Layout.leftMargin: 12
+                        Layout.topMargin: 12
+                        Layout.bottomMargin: 12
+                        Layout.rightMargin: 12
+                        Layout.preferredWidth: 88
+                        Layout.fillHeight: true
+                        radius: root.radiusCard
+                        color: root.panelAlt
+                        border.color: root.line
+                        border.width: 1
 
                 ColumnLayout {
                     anchors.fill: parent
@@ -829,10 +944,15 @@ ApplicationWindow {
             }
 
             Rectangle {
+                Layout.topMargin: 12
+                Layout.bottomMargin: 12
+                Layout.rightMargin: 12
                 Layout.preferredWidth: root.section === 3 ? 280 : 336
                 Layout.fillHeight: true
-                color: root.panel
-                border.color: root.line
+                radius: root.radiusCard
+                color: root.glass
+                border.color: root.glassLine
+                border.width: 1
 
                 ColumnLayout {
                     anchors.fill: parent
@@ -1226,7 +1346,12 @@ ApplicationWindow {
             Rectangle {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
+                Layout.topMargin: 12
+                Layout.bottomMargin: 12
+                Layout.rightMargin: 12
+                radius: root.radiusCard
                 color: root.bg
+                clip: true
 
                 Loader {
                     id: contentLoader
@@ -1250,6 +1375,8 @@ ApplicationWindow {
                     }
                 }
             }
+                }
+            }
         }
     }
 
@@ -1263,13 +1390,22 @@ ApplicationWindow {
                 anchors.centerIn: parent
                 spacing: root.space3
                 visible: !appController.selectedPeerAccount.length
-                Rectangle {
+                ElevatedSurface {
                     anchors.horizontalCenter: parent.horizontalCenter
-                    width: 76
-                    height: 76
-                    radius: root.radiusPanel
-                    color: root.accentSoft
-                    Text { anchors.centerIn: parent; text: "···"; color: root.accent; font.pixelSize: 28 }
+                    width: 88
+                    height: 88
+                    radius: root.radiusCard
+                    gradient: Gradient {
+                        GradientStop { position: 0; color: root.accentSurface }
+                        GradientStop { position: 1; color: root.accentGlow }
+                    }
+                    Text {
+                        anchors.centerIn: parent
+                        text: "R"
+                        color: root.accentText
+                        font.pixelSize: 34
+                        font.weight: root.titleWeight
+                    }
                 }
                 Text {
                     anchors.horizontalCenter: parent.horizontalCenter
@@ -1600,6 +1736,23 @@ ApplicationWindow {
                         }
 
                         Rectangle {
+                            id: bubbleTail
+                            visible: !modelData.recalled
+                            width: 14
+                            height: 14
+                            radius: 4
+                            rotation: modelData.mine ? 45 : -45
+                            color: modelData.mine ? root.accentGlow : root.panel
+                            z: -1
+                            anchors.top: bubble.top
+                            anchors.topMargin: 14
+                            anchors.right: modelData.mine ? bubble.right : undefined
+                            anchors.rightMargin: modelData.mine ? -7 : 0
+                            anchors.left: modelData.mine ? undefined : bubble.left
+                            anchors.leftMargin: modelData.mine ? 0 : -7
+                        }
+
+                        Rectangle {
                             id: reactionBadge
                             anchors.top: bubble.bottom
                             anchors.topMargin: -4
@@ -1688,6 +1841,8 @@ ApplicationWindow {
                                 || root.replyPreview.length > 0
                             Layout.fillWidth: true
                             Layout.preferredHeight: visible ? 36 : 0
+                            Layout.leftMargin: 14
+                            Layout.rightMargin: 14
                             Rectangle {
                                 Layout.fillWidth: true
                                 Layout.fillHeight: true
@@ -1720,6 +1875,10 @@ ApplicationWindow {
                         RowLayout {
                             Layout.fillWidth: true
                             Layout.fillHeight: true
+                            Layout.leftMargin: 14
+                            Layout.rightMargin: 14
+                            Layout.topMargin: 4
+                            Layout.bottomMargin: 8
                             spacing: root.space2
 
                             Button {
@@ -1779,12 +1938,13 @@ ApplicationWindow {
                                     placeholderTextColor: root.textMuted
                                     font.pixelSize: 14
                                     font.weight: root.bodyWeight
-                                    wrapMode: TextArea.Wrap
-                                    background: Rectangle {
-                                        color: root.panelAlt
-                                        radius: root.radiusControl
-                                        border.color: composer.activeFocus ? root.accent : root.line
-                                    }
+                            wrapMode: TextArea.Wrap
+                            background: Rectangle {
+                                color: root.panel
+                                radius: root.radiusControl
+                                border.color: composer.activeFocus ? root.accent : root.line
+                                border.width: composer.activeFocus ? 1.5 : 1
+                            }
                                     onTextChanged: root.setDraft(draftAccount, text)
                                     Keys.onPressed: function(event) {
                                         let enter = event.key === Qt.Key_Return || event.key === Qt.Key_Enter
@@ -1839,6 +1999,9 @@ ApplicationWindow {
                         RowLayout {
                             Layout.fillWidth: true
                             Layout.preferredHeight: 16
+                            Layout.leftMargin: 14
+                            Layout.rightMargin: 14
+                            Layout.bottomMargin: 8
                             Text {
                                 text: root.draftFor(appController.selectedPeerAccount).length
                                     ? "草稿已保留"

@@ -1,5 +1,8 @@
 # RubbageChat 架构
 
+> 架构判定与改进路线（C/S 评估、短中长期优化清单）见
+> [ARCHITECTURE_REVIEW.md](docs/ARCHITECTURE_REVIEW.md)。
+
 ## 2.5 关键模块
 
 - `EndpointDiscovery`：只暴露一个“解析可用服务端”操作，封装 HTTPS Bootstrap、
